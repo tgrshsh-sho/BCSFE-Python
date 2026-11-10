@@ -360,7 +360,6 @@ class GameDataGetter:
         versions = GameDataGetter.get_all_downloaded_versions()
         for cc, cc_versions in versions.items():
             cc_versions.sort(reverse=True)
-            to_keep = min(to_keep, len(cc_versions))
             for version in cc_versions[to_keep:]:
                 GameDataGetter.delete(cc, version)
 
