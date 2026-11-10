@@ -1,5 +1,6 @@
 from __future__ import annotations
 from io import BytesIO
+import threading
 from typing import Any, Callable
 
 from bcsfe.cli import color, dialog_creator
@@ -8,6 +9,13 @@ import tarfile
 import json
 
 from bcsfe import core
+from bcsfe.core.server import game_data_builder
+
+# Versions already offered for building from the official app in this run (accepted,
+# declined or failed). Getters are recreated after every feature, so this is module
+# state; the lock keeps getters created at the same time from asking twice.
+_app_build_offered: set[str] = set()
+_app_build_lock = threading.RLock()
 
 
 class GameDataGetter:
@@ -34,11 +42,144 @@ class GameDataGetter:
             return
 
         self.metadata = GameDataGetter.get_metadata()
-        if self.metadata is None:
+        if self.metadata is not None:
+            self.all_versions = GameDataGetter.get_versions(self.metadata)
+            self.url = self.metadata.get("base_url")
+
+        if self.build_missing_version():
             return
-        self.all_versions = GameDataGetter.get_versions(self.metadata)
-        self.url = self.metadata.get("base_url")
+
+        if self.all_versions is None:
+            return
         self.version, self.filepath = self.get_version(self.all_versions, self.cc)
+
+    def build_missing_version(self) -> bool:
+        """Offer to create the save's exact game version from the official app.
+
+        Called when no local directory has that version. Only for regions the builder
+        supports (jp), only when BCData does not offer the exact version (or could not
+        be reached), and at most once per version per run. Returns True when the data
+        was created; this getter then uses it instead of the fallback version.
+        """
+        cc_code = self.cc.get_code()
+        version = self.gv.to_string()
+        if not self.print or not game_data_builder.is_supported(cc_code):
+            return False
+        if self.all_versions is not None and version in self.all_versions.get(
+            cc_code, {}
+        ):
+            return False
+
+        with _app_build_lock:
+            key = f"{cc_code}/{version}"
+            if key in _app_build_offered:
+                return False
+            _app_build_offered.add(key)
+            if not dialog_creator.yes_no_key("gdb_build_offer", version=version):
+                color.color_print_key("gdb_build_declined")
+                return False
+            if not GameDataGetter.build_from_app(self.cc, version):
+                return False
+
+        self.version = version
+        self.url = None
+        self.filepath = None
+        return True
+
+    @staticmethod
+    def can_build_from_app(cc: core.CountryCode) -> bool:
+        return game_data_builder.is_supported(cc.get_code())
+
+    @staticmethod
+    def build_from_app(
+        cc: core.CountryCode,
+        version: str,
+        packages: list[game_data_builder.PackageInfo] | None = None,
+    ) -> bool:
+        """Create game data for ``version`` from the official app, showing progress.
+
+        On any failure prints a one-line reason and returns False.
+        """
+        color.color_print_key("gdb_build_start", version=version)
+        try:
+            path = game_data_builder.build_version(
+                version,
+                GameDataGetter.get_game_data_dir().to_str(),
+                cc.get_code(),
+                status=GameDataGetter.print_build_status,
+                packages=packages,
+            )
+        except game_data_builder.BuildError as e:
+            GameDataGetter.print_build_failure(e.key, **e.kwargs)
+            return False
+        except Exception as e:  # an optional step must never take the editor down
+            core.core_data.logger.log_exception(e, "building game data from the app")
+            GameDataGetter.print_build_failure(
+                "gdb_reason_unexpected", error=type(e).__name__
+            )
+            return False
+        color.color_print_key("gdb_build_done", version=version, path=path)
+        return True
+
+    @staticmethod
+    def build_from_app_menu(cc: core.CountryCode) -> core.GameVersion | None:
+        """Action of "Manage game data": create a chosen version (default: newest)."""
+        if not GameDataGetter.can_build_from_app(cc):
+            GameDataGetter.print_build_failure(
+                "gdb_reason_unsupported", cc=cc.get_code()
+            )
+            return None
+
+        packages: list[game_data_builder.PackageInfo] | None = None
+        override = game_data_builder.get_package_override()
+        try:
+            if override is None:
+                color.color_print_key("gdb_status_index")
+                packages = game_data_builder.fetch_index()
+                versions = game_data_builder.available_versions(packages)
+                color.color_print_key(
+                    "gdb_available_versions", versions=", ".join(versions[:10])
+                )
+                default = versions[0] if versions else None
+            else:
+                default = game_data_builder.package_version(override)
+        except game_data_builder.BuildError as e:
+            GameDataGetter.print_build_failure(e.key, **e.kwargs)
+            return None
+
+        if default is None:
+            answer = dialog_creator.str_input_key("gdb_version_q_no_default")
+        else:
+            answer = dialog_creator.str_input_key("gdb_version_q", default=default)
+        if answer is None:
+            return None
+        version = answer.strip() or default
+        if not version:
+            return None
+        if not game_data_builder.is_valid_version(version):
+            GameDataGetter.print_build_failure("gdb_reason_bad_version", version=version)
+            return None
+
+        downloaded = (
+            GameDataGetter.get_game_data_dir()
+            .add(cc.get_code())
+            .add(version)
+            .add("downloaded")
+        )
+        if downloaded.exists():
+            color.color_print_key("gdb_already_present", version=version)
+        elif not GameDataGetter.build_from_app(cc, version, packages):
+            return None
+        return core.GameVersion.from_string(version)
+
+    @staticmethod
+    def print_build_status(key: str, /, **kwargs: Any) -> None:
+        color.color_print_key(key, **kwargs)
+
+    @staticmethod
+    def print_build_failure(reason_key: str, **kwargs: Any) -> None:
+        reason = core.localize(reason_key, **kwargs)
+        color.color_print_key("gdb_build_failed", escape=False, reason=reason)
 
     def find_gv(
         self, cc: core.CountryCode, gv: core.GameVersion

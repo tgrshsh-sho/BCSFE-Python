@@ -3,7 +3,7 @@ import traceback
 
 from bcsfe import cli, copy_to_data_dir
 
-from bcsfe import core, __app_name__, __version__
+from bcsfe import core, __app_name__
 
 import bcsfe
 import argparse
@@ -12,10 +12,12 @@ from importlib import resources
 
 
 def migrate(force: bool):
+    # the full version, so that a new fork revision copies files/ (e.g. locales) again
+    version = bcsfe.get_full_version()
     v_path = core.Path.get_data_folder().add("version.txt")
     if not v_path.exists():
         try:
-            v_path.write(core.Data(__version__))
+            v_path.write(core.Data(version))
         except FileNotFoundError:
             print(
                 "Failed to create data folder. Something is wrong with your user's permissions or anti-virus software"
@@ -25,10 +27,10 @@ def migrate(force: bool):
         vers = None
     else:
         vers = v_path.read().to_str().strip()
-    if vers != __version__ or force:
+    if vers != version or force:
         p = resources.files(__app_name__).joinpath("files")
         copy_to_data_dir(p, p)
-        v_path.write(core.Data(__version__))
+        v_path.write(core.Data(version))
 
 
 def main():
@@ -73,7 +75,7 @@ def main():
 
     args = parser.parse_args()
     if args.version:
-        print(bcsfe.__version__)
+        print(bcsfe.get_full_version())
         exit()
 
     if args.config_path is not None:
@@ -102,7 +104,7 @@ def main():
     except Exception as e:
         tb = traceback.format_exc()
         cli.color.color_print_key(
-            "error", error=e, version=bcsfe.__version__, traceback=tb
+            "error", error=e, version=bcsfe.get_full_version(), traceback=tb
         )
         try:
             cli.main.Main.exit_editor()
@@ -112,4 +114,6 @@ def main():
             pass
 
 
-main()
+# guarded so that importing this module (bcsfe.run, tests) does not start the editor
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,4 @@
 from __future__ import annotations
-import sys
 from typing import Any
 import json
 from bcsfe import core, __app_name__
@@ -7,11 +6,27 @@ import bcsfe
 
 
 class Updater:
+    """Looks up upstream releases of the editor on PyPI.
+
+    This is the jp fork: it never installs anything from PyPI, since that would replace
+    it with the stock editor. Upstream releases newer than the base version are only
+    reported; they are merged into the fork by hand.
+    """
+
     def __init__(self):
         pass
 
     def get_local_version(self) -> str:
+        """Version shown to the user, including the fork revision (``3.6.0+jp.1``)."""
+        return bcsfe.get_full_version()
+
+    def get_base_version(self) -> str:
+        """Upstream version this build is based on; PyPI releases are compared to it."""
         return bcsfe.__version__
+
+    def is_upstream_newer(self, latest_version: str) -> bool:
+        """Whether ``latest_version`` from PyPI is newer than the base version."""
+        return Updater.beta_version_check(latest_version, self.get_base_version())
 
     def get_pypi_json(self) -> dict[str, Any] | None:
         url = f"https://pypi.org/pypi/{__app_name__}/json"
@@ -60,25 +75,6 @@ class Updater:
         if releases is None:
             return None
         return releases.get(self.get_latest_version(prereleases))
-
-    def update(self, target_version: str) -> bool:
-        binary = sys.orig_argv[0]
-        python_aliases = [binary, "py", "python", "python3"]
-        for python_alias in python_aliases:
-            cmd = f"{python_alias} -m pip install --upgrade {__app_name__}=={target_version}"
-            result = core.Path().run(cmd)
-            if result.exit_code == 0:
-                break
-        else:
-            pip_aliases = ["pip", "pip3"]
-            for pip_alias in pip_aliases:
-                cmd = f"{pip_alias} install --upgrade {__app_name__}=={target_version}"
-                result = core.Path().run(cmd)
-                if result.exit_code == 0:
-                    break
-            else:
-                return False
-        return True
 
     def has_enabled_pre_release(self) -> bool:
         return core.core_data.config.get_bool(core.ConfigKey.UPDATE_TO_BETA)

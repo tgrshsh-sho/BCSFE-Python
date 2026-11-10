@@ -394,17 +394,26 @@ def manage_game_data(_: Any = None):
             .add_new_key(
                 "add_version", lambda _, region=cc: (add_version(region), False, False)
             )
-            .add_new_key(
-                "remove_all",
+        )
+        if GameDataGetter.can_build_from_app(cc):
+            actions.add_new_key(
+                "gdb_build_from_app",
                 lambda _, region=cc: (
-                    GameDataGetter.delete_region(region),
+                    GameDataGetter.build_from_app_menu(region),
                     False,
                     False,
                 ),
             )
-            .add_new_key("change_cc", lambda _: (None, False, True))
-            .add_new_key("exit", lambda _: (None, True, False))
+        actions.add_new_key(
+            "remove_all",
+            lambda _, region=cc: (
+                GameDataGetter.delete_region(region),
+                False,
+                False,
+            ),
         )
+        actions.add_new_key("change_cc", lambda _: (None, False, True))
+        actions.add_new_key("exit", lambda _: (None, True, False))
         resp = dialog_creator.single_select_key(actions, "select_option")
         if resp is None:
             return
@@ -418,7 +427,7 @@ def manage_game_data(_: Any = None):
         if gv2 is None:
             continue
 
-        gv = gv2
+        gv: GameVersion = gv2
 
         color.color_print_key(
             "gv_path",

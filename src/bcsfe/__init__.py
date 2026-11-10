@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+# Upstream version this fork is based on. Keep upstream's format: packaging and the
+# editor_version field of exported saves rely on it.
 __version__ = "3.6.0"
+# Revision of the jp fork on top of __version__; bump it for every fork release.
+__fork__ = "jp.1"
 
 __app_name__ = "bcsfe"
+
+
+def get_full_version() -> str:
+    """Version shown to users: upstream base plus fork revision, e.g. ``3.6.0+jp.1``."""
+    return f"{__version__}+{__fork__}"
+
 
 try:
     from importlib.resources.abc import Traversable

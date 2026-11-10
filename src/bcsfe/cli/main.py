@@ -10,7 +10,6 @@ from bcsfe.cli import (
     color,
     feature_handler,
     save_management,
-    dialog_creator,
 )
 from bcsfe import core, __app_name__
 import json
@@ -52,7 +51,11 @@ class Main:
 
     @staticmethod
     def check_update():
-        """Check for updates."""
+        """Check PyPI for a newer upstream release.
+
+        This fork never updates itself (installing from PyPI would replace it with the
+        stock editor), so a newer upstream release is only reported.
+        """
 
         updater = core.Updater()
         has_pre_release = updater.has_enabled_pre_release()
@@ -69,19 +72,12 @@ class Main:
             latest_version=latest_version,
         )
 
-        if core.Updater.beta_version_check(latest_version, local_version):
-            update = dialog_creator.yes_no_key(
-                "update_available", latest_version=latest_version
+        if updater.is_upstream_newer(latest_version):
+            color.color_print_key(
+                "fork_upstream_update_available",
+                latest_version=latest_version,
+                base_version=updater.get_base_version(),
             )
-            if update is None:
-                return
-
-            if update:
-                if updater.update(latest_version):
-                    color.color_print_key("update_success")
-                else:
-                    color.color_print_key("update_fail")
-                sys.exit()
         else:
             color.color_print_key("no_update_required", app_name=__app_name__)
 
