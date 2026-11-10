@@ -1,9 +1,11 @@
 from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
+import unicodedata
 
 from bcsfe import core
-from bcsfe.cli import color
+from bcsfe.cli import color, tui
+from bcsfe.cli.tui import strings as tui_strings
 
 T = TypeVar("T")
 
@@ -139,6 +141,11 @@ def display_options_raw(options: list[str], dialog: str):
 
 
 def yes_no_raw(dialog: str) -> bool | None:
+    if tui.is_interactive():
+        try:
+            return tui.confirm(dialog, default=False, fallback=False)
+        except tui.TuiUnavailable:
+            pass
     inp = str_input_raw(dialog)
     if inp is None:
         return None
@@ -178,8 +185,60 @@ def range_basic_parse(usr_input: str, max: MaxValue, min: int = 0) -> list[int] 
     return nums
 
 
+_RANGE_DASHES = "~〜ー−‐–—―"
+
+
+def normalize_range_input(text: str) -> str:
+    """Range input typed with a Japanese IME: full-width digits, ``〜``/``ー``
+    as the range dash and ``、``/``,`` as separators become ``1 2 3-5``."""
+    text = unicodedata.normalize("NFKC", text)
+    for dash in _RANGE_DASHES:
+        text = text.replace(dash, "-")
+    text = text.replace(",", " ").replace("、", " ")
+    return " ".join(text.split())
+
+
+def range_input_error(text: str, max: MaxValue, min: int = 0) -> str | None:
+    """Error message for range input that ``range_multi_input_raw`` would
+    reject (fully or partly), or None if it is valid."""
+    value = normalize_range_input(text)
+    if not value or value == core.localize("quit_key"):
+        return None
+    if value.lower() == core.localize("all").lower():
+        return None
+    for part in value.split(" "):
+        if part.isdigit():
+            if int(part) > max.max or int(part) < min:
+                return core.localize("invalid_input_int", min=min, max=max.max)
+        elif "-" in part:
+            min_v, max_v = part.split("-", 1)
+            if not min_v.isdigit() or not max_v.isdigit() or int(max_v) < int(min_v):
+                return core.localize("invalid_range", val=part)
+            if int(max_v) > max.max or int(min_v) < min:
+                return core.localize("invalid_input_int", min=min, max=max.max)
+        else:
+            return core.localize("invalid_range", val=part)
+    return None
+
+
 def range_multi_input_raw(dialog: str, max: MaxValue, min: int = 0) -> list[int] | None:
-    usr_input = color.color_input(dialog)
+    if tui.is_interactive():
+        try:
+            tui_input = tui.text(
+                dialog,
+                validate=lambda v: range_input_error(v, max, min),
+                fallback=False,
+            )
+        except tui.TuiUnavailable:
+            usr_input = color.color_input(dialog)
+        else:
+            if tui_input is None:
+                return None
+            usr_input = normalize_range_input(tui_input)
+            if not usr_input:
+                return []
+    else:
+        usr_input = color.color_input(dialog)
     if usr_input == core.localize("quit_key"):
         return None
 
@@ -261,6 +320,16 @@ def multi_select_entries_raw(
     if len(options) == 1:
         return [(0, options[0])]
 
+    if tui.is_interactive():
+        try:
+            indexes = tui.multi_select(dialog, options, fallback=False)
+        except tui.TuiUnavailable:
+            pass
+        else:
+            if indexes is None:
+                return None
+            return [(i, options[i]) for i in indexes]
+
     offset = 1
     actions = (
         Actions[list[tuple[int, str]]]
@@ -307,6 +376,19 @@ def single_select_raw(actions: Actions[T], dialog: str) -> T | None:
         return None
     if actions.len() == 1 and actions.actions[0].len() == 1:
         return actions.actions[0].run(0)
+    if tui.is_interactive():
+        labels = [opt for act in actions.actions for opt in act.options]
+        try:
+            index = tui.select(dialog, labels, fallback=False)
+        except tui.TuiUnavailable:
+            pass
+        else:
+            if index is None:
+                return None
+            picked = actions.get_rebase(index)
+            if picked is None:
+                return None
+            return picked[0].run(picked[1])
     offset = 1
 
     min = offset
@@ -480,7 +562,21 @@ def edit_int_raw(item_name: str, current_value: int, max: MaxValue) -> int:
         key, name=item_name, value=current_value, max=max.max, escape=False
     )
 
-    val = int_input_raw(dialog, max, auto_clamp=True)
+    if tui.is_interactive():
+        try:
+            val = tui.integer(
+                dialog,
+                minimum=0,
+                maximum=max.max,
+                current=current_value,
+                clamp=True,
+                show_range=max.show,
+                fallback=False,
+            )
+        except tui.TuiUnavailable:
+            val = int_input_raw(dialog, max, auto_clamp=True)
+    else:
+        val = int_input_raw(dialog, max, auto_clamp=True)
     if val is None:
         val = current_value
     color.color_print_key("value_changed", name=item_name, value=val, escape=False)
@@ -520,6 +616,20 @@ def int_input_raw(
     default: int | None = None,
     auto_clamp: bool = False,
 ) -> int | None:
+    if tui.is_interactive():
+        try:
+            return tui.integer(
+                dialog,
+                minimum=_min,
+                maximum=_max.max,
+                current=default,
+                clamp=auto_clamp,
+                show_range=_max.show,
+                current_label=tui_strings.tr("tui_default_label"),
+                fallback=False,
+            )
+        except tui.TuiUnavailable:
+            pass
     quit_key = core.localize("quit_key")
     while True:
         inp = color.color_input(dialog)
@@ -545,7 +655,17 @@ def int_input_raw(
 
 def str_input_raw(dialog: str) -> str | None:
     quit_key = core.localize("quit_key")
-    inp = color.color_input(dialog)
+    if tui.is_interactive():
+        try:
+            tui_input = tui.text(dialog, fallback=False)
+        except tui.TuiUnavailable:
+            inp = color.color_input(dialog)
+        else:
+            if tui_input is None:
+                return None
+            inp = tui_input
+    else:
+        inp = color.color_input(dialog)
     if inp == quit_key:
         return None
     if inp == f"\\{quit_key}":
@@ -639,15 +759,22 @@ def edit_ints_raw(
     current_values: list[int],
     max: MultiMax | CumulativeMax | MaxValue,
 ) -> list[int]:
-    entries = multi_select_indexes_key(
-        [
-            core.localize("value", name=name, value=value)
-            for name, value in zip(item_names, current_values)
-        ],
-        "input_many",
-        min=1,
-        max=len(item_names) + 1,
-    )
+    options = [
+        core.localize("value", name=name, value=value)
+        for name, value in zip(item_names, current_values)
+    ]
+    if tui.is_interactive():
+        # "input_many" asks for typed numbers, which the widget does not use
+        entries = multi_select_indexes_key(
+            options, "select_edit", group_name=group_name
+        )
+    else:
+        entries = multi_select_indexes_key(
+            options,
+            "input_many",
+            min=1,
+            max=len(item_names) + 1,
+        )
 
     if not entries:
         return current_values

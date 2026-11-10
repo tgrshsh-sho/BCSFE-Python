@@ -28,6 +28,7 @@ class ConfigKey(enum.Enum):
     ADB_PATH = "adb_path"
     IGNORE_PARSE_ERROR = "ignore_parse_error"
     USE_PKEXEC_WAYDROID = "use_pkexec_waydroid"
+    UI_MODE = "ui_mode"
 
 
 class Config:
@@ -81,6 +82,7 @@ class Config:
             ConfigKey.ADB_PATH: "adb",
             ConfigKey.IGNORE_PARSE_ERROR: False,
             ConfigKey.USE_PKEXEC_WAYDROID: True,
+            ConfigKey.UI_MODE: "auto",
         }
         return initial_values
 
@@ -254,6 +256,27 @@ class Config:
             return
 
         self.set(key, value)
+        color.color_print_key("config_success")
+
+    def edit_ui_mode(self):
+        modes = ["auto", "classic"]
+        text = self.get_full_input_localized(
+            ConfigKey.UI_MODE,
+            self.get_str(ConfigKey.UI_MODE),
+            self.get_default(ConfigKey.UI_MODE),
+        )
+        color.color_print(text)
+        value = dialog_creator.single_select_key(
+            dialog_creator.Actions[str]
+            .new()
+            .add_new_key(
+                ["tui_ui_mode_auto", "tui_ui_mode_classic"], lambda i: modes[i]
+            ),
+            "tui_ui_mode_dialog",
+        )
+        if value is None:
+            return
+        self.set(ConfigKey.UI_MODE, value)
         color.color_print_key("config_success")
 
     def add_locale(self):
@@ -492,6 +515,8 @@ class Config:
             core.core_data.config.edit_theme()
         elif feature == ConfigKey.GAME_DATA_REPO:
             core.core_data.config.edit_game_data_repo()
+        elif feature == ConfigKey.UI_MODE:
+            core.core_data.config.edit_ui_mode()
         elif isinstance(config.get(feature), str):
             core.core_data.config.edit_str(feature)
         print()
