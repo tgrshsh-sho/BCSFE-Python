@@ -8,18 +8,28 @@ authors = [{ name = "fieryhenry" }]
 description = "A save file editor for The Battle Cats"
 license = "GPL-3.0-or-later"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: End Users/Desktop",
   "Topic :: Utilities",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
   "Operating System :: OS Independent",
 ]
-dependencies = ["pyjwt", "requests", "pyyaml", "argparse"]
+dependencies = [
+  "pyjwt",
+  "requests",
+  "pyyaml",
+  "argparse",
+  "prompt_toolkit>=3.0.50",
+  "cryptography>=43",
+]
 dynamic = ["version"]
 keywords = ["battle cats", "save editor", "hacking"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyte>=0.8.2", "pyright>=1.1.400", "ruff>=0.9"]
 
 [project.urls]
 Homepage = "https://codeberg.org/fieryhenry/BCSFE-Python"
