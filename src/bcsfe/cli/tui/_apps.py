@@ -969,6 +969,16 @@ def parse_int(text: str) -> int | None:
         return None
 
 
+# Words that mean "the maximum" in integer fields with allow_max (normalised).
+MAX_WORDS = frozenset(
+    matching.normalize(w) for w in ("max", "最大", "さいだい", "上限")
+)
+
+
+def is_max_word(text: str) -> bool:
+    return matching.normalize(text).strip() in MAX_WORDS
+
+
 def integer(
     message: str,
     *,
@@ -978,6 +988,7 @@ def integer(
     clamp: bool,
     show_range: bool = True,
     current_label: str | None = None,
+    allow_max: bool = False,
 ) -> int | None:
     info: StyleAndTextTuples = []
     if show_range:
@@ -994,6 +1005,8 @@ def integer(
             info.append(("", "  "))
         info.append(("class:info", f"{label} {fmt(current)}"))
         hint += "  " + strings.tr("tui_hint_keep", value=fmt(current))
+    if allow_max:
+        hint += "  " + strings.tr("tui_hint_max", value=fmt(maximum))
 
     quit_key = strings.localize_or("quit_key", "q")
 
@@ -1004,6 +1017,8 @@ def integer(
             return strings.tr("tui_error_empty")
         if value.strip() == quit_key:  # the classic prompt's quit key cancels
             return None
+        if allow_max and is_max_word(value):
+            return Accepted(maximum, str(maximum))
         number = parse_int(value)
         if number is None:
             return strings.tr("tui_error_not_number")

@@ -221,6 +221,7 @@ def integer(
     clamp: bool = False,
     show_range: bool = True,
     current_label: str | None = None,
+    allow_max: bool = False,
     fallback: bool = True,
 ) -> int | None:
     """A whole number in ``minimum..maximum``.
@@ -229,7 +230,8 @@ def integer(
     (labelled ``current_label``, default "current").  Empty Enter returns
     ``current`` when it is not None.  Out-of-range numbers are rejected with an
     inline error, or clamped when ``clamp`` is True.  Full-width digits and
-    ``1,000`` are accepted."""
+    ``1,000`` are accepted; with ``allow_max`` also ``max`` / ``最大`` for
+    ``maximum``."""
     if is_interactive():
         try:
             from bcsfe.cli.tui import _apps
@@ -242,10 +244,11 @@ def integer(
                 clamp=clamp,
                 show_range=show_range,
                 current_label=current_label,
+                allow_max=allow_max,
             )
         except EOFError:
             raise
         except Exception as e:
             _failed(e)
     _unavailable(fallback)
-    return classic.integer(message, minimum, maximum, current, clamp)
+    return classic.integer(message, minimum, maximum, current, clamp, allow_max)

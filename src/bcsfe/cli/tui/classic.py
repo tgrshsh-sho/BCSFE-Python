@@ -139,15 +139,23 @@ def text(
 
 
 def integer(
-    message: str, minimum: int, maximum: int, current: int | None, clamp: bool
+    message: str,
+    minimum: int,
+    maximum: int,
+    current: int | None,
+    clamp: bool,
+    allow_max: bool = False,
 ) -> int | None:
     quit_key = _quit_key()
+    max_words = {matching.normalize(w) for w in ("max", "最大", "さいだい", "上限")}
     while True:
         inp = color.color_input(message)
         if not inp.strip() and current is not None:
             return current
         if inp == quit_key:
             return None
+        if allow_max and matching.normalize(inp).strip() in max_words:
+            return maximum
         try:
             value = int(inp)
         except ValueError:

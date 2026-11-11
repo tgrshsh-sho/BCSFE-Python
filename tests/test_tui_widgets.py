@@ -540,3 +540,30 @@ def test_pick_classic_numbers_only_selectable_rows(
     ]
     # multi: "4" is the trailing "all" entry
     assert tui.pick("t", SECTIONS, multi=True) == tui.ListResult((1, 2, 4))
+
+
+def test_integer_max_word() -> None:
+    def field(*keys: str, allow_max: bool = True) -> int | None:
+        return drive(
+            lambda: _apps.integer(
+                "t",
+                minimum=0,
+                maximum=999,
+                current=5,
+                clamp=False,
+                allow_max=allow_max,
+            ),
+            *keys,
+        )
+
+    assert field("max", ENTER) == 999
+    assert field("最大", ENTER) == 999
+    assert field("ＭＡＸ", ENTER) == 999
+    assert field(ENTER) == 5
+    assert field("max", ENTER, ESC, allow_max=False) is None  # rejected, input kept
+
+
+def test_classic_integer_max_word(monkeypatch: pytest.MonkeyPatch) -> None:
+    answers = iter(["max"])
+    monkeypatch.setattr(classic.color, "color_input", lambda _: next(answers))
+    assert classic.integer("t", 0, 999, 5, False, True) == 999
