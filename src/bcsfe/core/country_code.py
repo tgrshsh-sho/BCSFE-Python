@@ -60,10 +60,15 @@ class CountryCode:
         return self
 
     @staticmethod
-    def select() -> CountryCode | None:
-        index = dialog_creator.basic_pick_key_index(
-            CountryCode.get_all_str(),
-            dialog="country_code_select",
+    def select(default: CountryCode | str | None = None) -> CountryCode | None:
+        """Ask for a region. ``default`` (a region or its code) is highlighted
+        first by the interactive prompt; None keeps the first one (en)."""
+        codes = CountryCode.get_all_str()
+        default_code = None if default is None else str(default).lower()
+        index = dialog_creator.single_select_key(
+            dialog_creator.Actions[int].new().add_new_raw(codes, lambda v: v),
+            "country_code_select",
+            default=codes.index(default_code) if default_code in codes else 0,
         )
         if index is None:
             return None

@@ -327,7 +327,7 @@ def edit_chapters2_clear_count(
                     lambda _: clear_whole_chapter(chapters, local_map_id, star, type),
                 )
                 .add_new_key(
-                    "edit_special_stages",
+                    "edit_specific_stages",
                     lambda _: edit_specific_stages(
                         chapters, map_names, local_map_id, star, type
                     ),

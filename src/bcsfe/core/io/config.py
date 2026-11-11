@@ -324,7 +324,7 @@ class Config:
             )
             return
 
-        options.append("cancel")
+        options.append(core.localize("cancel"))
 
         choices = dialog_creator.multi_select_entries_key(
             options, dialog="locale_remove_dialog"
@@ -412,7 +412,7 @@ class Config:
             )
             return
 
-        options.append("cancel")
+        options.append(core.localize("cancel"))
 
         choices = dialog_creator.multi_select_entries_key(
             options, dialog="theme_remove_dialog"
@@ -449,7 +449,7 @@ class Config:
                 theme_name=theme_name,
             ):
                 color.color_print_key(
-                    "theme_cancelled",
+                    "locale_cancelled",  # the generic "Cancelled"
                 )
                 return
 

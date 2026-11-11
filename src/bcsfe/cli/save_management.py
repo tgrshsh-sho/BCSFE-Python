@@ -1,10 +1,47 @@
 from __future__ import annotations
+import datetime
+import os
+import sys
+from collections.abc import Sequence
 from typing import Optional
 from bcsfe import core
 import bcsfe
 from bcsfe.core import io
-from bcsfe.cli import main, color, dialog_creator, server_cli
+from bcsfe.cli import main, color, dialog_creator, server_cli, tui, clipboard
+from bcsfe.cli.tui import matching
 from bcsfe.core.country_code import CountryCode
+
+BOX_CHARS = "┌─┐│└┘"
+BOX_CHARS_ASCII = "+-+|++"
+
+
+def codes_box(rows: Sequence[tuple[str, str]], chars: str = BOX_CHARS) -> list[str]:
+    """``(label, code)`` rows in a frame (colour markup).  Widths are counted
+    in terminal cells, so Japanese labels line up."""
+    from prompt_toolkit.utils import get_cwidth
+
+    labels = [matching.strip_markup(label) for label, _ in rows]
+    label_width = max(get_cwidth(label) for label in labels)
+    value_width = max(get_cwidth(value) for _, value in rows)
+    top_left, line, top_right, side, bottom_left, bottom_right = chars
+    inner = 2 + label_width + 2 + value_width + 2
+    lines = [top_left + line * inner + top_right]
+    for (label, value), plain_label in zip(rows, labels):
+        label_pad = " " * (label_width - get_cwidth(plain_label))
+        value_pad = " " * (value_width - get_cwidth(value))
+        code = core.LocalManager.escape_string(value)
+        lines.append(f"{side}  {label}{label_pad}  <@s>{code}</>{value_pad}  {side}")
+    lines.append(bottom_left + line * inner + bottom_right)
+    return lines
+
+
+def can_print(text: str) -> bool:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
 
 
 class SaveManagement:
@@ -77,6 +114,9 @@ class SaveManagement:
         if result is not None:
             SaveManagement.save_save(save_file, check_strict=False)
             transfer_code, confirmation_code = result
+            if tui.is_interactive():
+                SaveManagement.show_codes(transfer_code, confirmation_code)
+                return
             color.color_print_key(
                 "upload_result",
                 transfer_code=transfer_code,
@@ -85,6 +125,20 @@ class SaveManagement:
         else:
             color.color_print_key("upload_fail")
             SaveManagement.save_save(save_file, check_strict=False)
+
+    @staticmethod
+    def show_codes(transfer_code: str, confirmation_code: str):
+        """The new codes in a frame; the transfer code also goes to the
+        clipboard when a clipboard tool is available."""
+        rows = [
+            (core.localize("transfer_code"), transfer_code),
+            (core.localize("confirmation_code"), confirmation_code),
+        ]
+        chars = BOX_CHARS if can_print(BOX_CHARS) else BOX_CHARS_ASCII
+        color.color_print_key("io_upload_done")
+        color.color_print("\n".join(codes_box(rows, chars)))
+        if clipboard.copy(transfer_code):
+            color.color_print_key("io_transfer_code_copied")
 
     @staticmethod
     def unban_account(save_file: core.SaveFile):
@@ -369,31 +423,41 @@ class SaveManagement:
                 lambda _: SaveManagement.pull_android(root_handler),
             )
 
-        actions = (
-            dialog_creator.Actions[Optional[tuple[core.SaveFile, core.Path]]]
-            .new()
-            .add_new_key(
-                "download_save",
-                lambda _: core.map_opt(
-                    server_cli.ServerCLI().download_save(),
-                    lambda vaaa: SaveManagement.load_save_file_path(vaaa[0], vaaa[1]),
-                ),
+        def download(_: int) -> Optional[tuple[core.SaveFile, core.Path]]:
+            return core.map_opt(
+                server_cli.ServerCLI().download_save(),
+                lambda vaaa: SaveManagement.load_save_file_path(vaaa[0], vaaa[1]),
             )
-            .add_new_key(
-                "select_save_file",
-                lambda _: core.map_opt(
-                    main.Main.load_save_file(), SaveManagement.load_save_file_path
-                ),
+
+        def select_file(_: int) -> Optional[tuple[core.SaveFile, core.Path]]:
+            return core.map_opt(
+                main.Main.load_save_file(), SaveManagement.load_save_file_path
             )
-        )
-        if core.SaveFile.get_save_path().exists():
-            actions.add_new_key(
-                "load_from_documents",
-                lambda _: core.map_opt(
-                    core.SaveFile.get_save_path(), SaveManagement.load_save_file_path
-                ),
-                path=core.SaveFile.get_save_path(),
+
+        def load_last(_: int) -> Optional[tuple[core.SaveFile, core.Path]]:
+            return core.map_opt(
+                core.SaveFile.get_save_path(), SaveManagement.load_save_file_path
             )
+
+        actions = dialog_creator.Actions[
+            Optional[tuple[core.SaveFile, core.Path]]
+        ].new()
+        last_save = core.SaveFile.get_save_path()
+        if tui.is_interactive():
+            # the usual path first: download with a transfer code, then the
+            # save downloaded / saved last time
+            actions.add_new_key("io_download_save", download)
+            if last_save.exists():
+                actions.add_new_raw(
+                    SaveManagement.last_save_label(last_save), load_last
+                )
+            actions.add_new_key("select_save_file", select_file)
+        else:  # upstream's order and wording
+            actions.add_new_key("download_save", download).add_new_key(
+                "select_save_file", select_file
+            )
+            if last_save.exists():
+                actions.add_new_key("load_from_documents", load_last, path=last_save)
 
         actions.add(root_action).add_new_key(
             "load_save_data_json",
@@ -411,7 +475,11 @@ class SaveManagement:
                     "update_external", lambda _: core.update_external_content()
                 )
                 .add_new_key("manage_game_data", lambda _: core.manage_game_data())
-                .add_new_key("exit", lambda _: main.Main.exit_editor(check_temp=False))
+            )
+            if tui.is_interactive():
+                actions.add_new_key("home_about", lambda _: main.Main.show_about())
+            actions.add_new_key(
+                "exit", lambda _: main.Main.exit_editor(check_temp=False)
             )
 
         res = dialog_creator.single_select_key(
@@ -426,6 +494,36 @@ class SaveManagement:
         return (
             save_data,
             False,
+        )
+
+    @staticmethod
+    def last_save_label(path: core.Path) -> str:
+        """Start menu entry for the save at ``path``: when and with which game
+        version it was written (upstream's entry with the path if unreadable)."""
+        info = SaveManagement.describe_save(path)
+        if info is None:
+            return core.localize("load_from_documents", path=path)
+        time, version = info
+        return core.localize("io_open_last_save", time=time, version=version)
+
+    @staticmethod
+    def describe_save(path: core.Path) -> tuple[str, str] | None:
+        """Modified time and game version of a save without parsing it (the
+        version is the first 4 bytes); None if it cannot be read."""
+        try:
+            modified = datetime.datetime.fromtimestamp(os.path.getmtime(path.path))
+            with open(path.path, "rb") as file:
+                head = file.read(4)
+        except (OSError, OverflowError, ValueError):
+            return None
+        if len(head) != 4:
+            return None
+        game_version = int.from_bytes(head, "little", signed=True)
+        if not 0 < game_version < 1_000_000:  # 160000 is 16.0.0
+            return None
+        return (
+            modified.strftime("%Y-%m-%d %H:%M"),
+            core.GameVersion(game_version).to_string(),
         )
 
     @staticmethod

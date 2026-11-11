@@ -124,9 +124,7 @@ class EnemyNames:
         try:
             name = self.names[id]
             if not name:
-                return core.core_data.local_manager.get_key(
-                    "enemy_not_in_name_list", id=id
-                )
+                return core.core_data.local_manager.get_key("io_enemy_no_name", id=id)
         except IndexError:
-            return core.core_data.local_manager.get_key("enemy_unknown_name", id=id)
+            return core.core_data.local_manager.get_key("io_enemy_unknown_name", id=id)
         return name

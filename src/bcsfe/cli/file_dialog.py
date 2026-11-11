@@ -9,6 +9,7 @@ class FileDialog:
         if not core.core_data.config.get_bool(core.ConfigKey.USE_FILE_DIALOG):
             self.tk = None
             self.filedialog = None
+            return
         try:
             import tkinter as tk
             from tkinter import filedialog

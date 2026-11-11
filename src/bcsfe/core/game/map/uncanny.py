@@ -64,7 +64,9 @@ class UncannyChapters:
         save_file: core.SaveFile, map_ids: list[int], names: core.MapNames
     ):
         for map_id in map_ids:
-            name = names.map_names.get(map_id) or core.localize("unknown_map")
+            name = names.map_names.get(map_id) or core.localize(
+                "unknown_map_name", id=map_id
+            )
             clear_amount = dialog_creator.int_input_key(
                 "enter_clear_amount_catamin_map",
                 dialog_creator.MaxValue.i32(),
