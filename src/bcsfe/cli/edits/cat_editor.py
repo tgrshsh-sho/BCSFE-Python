@@ -3,7 +3,7 @@ import enum
 from typing import Optional
 
 from bcsfe import core
-from bcsfe.cli import color, dialog_creator
+from bcsfe.cli import cat_picker, color, dialog_creator, tui
 
 
 class SelectMode(enum.Enum):
@@ -15,6 +15,7 @@ class SelectMode(enum.Enum):
 class CatEditor:
     def __init__(self, save_file: core.SaveFile):
         self.save_file = save_file
+        self.picker_failed = False
 
     def get_current_cats(self):
         return self.save_file.cats.get_unlocked_cats()
@@ -45,6 +46,9 @@ class CatEditor:
         return self.save_file.cats.get_cats_gatya_banner(self.save_file, gatya_id)
 
     def print_selected_cats(self, current_cats: list[core.Cat]):
+        if tui.is_interactive():
+            color.color_print(cat_picker.summary(self.save_file, current_cats))
+            return
         if len(current_cats) > 50:
             color.color_print_key("total_selected_cats", total=len(current_cats))
         else:
@@ -54,51 +58,43 @@ class CatEditor:
                     names = [str(cat.id)]
                 color.color_print_key("selected_cat", id=cat.id, name=names[0])
 
+    def pick(
+        self, current_cats: list[core.Cat]
+    ) -> tuple[bool, list[core.Cat] | None]:
+        """Select with the interactive cat picker, if it can be used.
+
+        Returns (used, cats); cats is None when the user cancelled."""
+        if self.picker_failed or not tui.is_interactive():
+            return False, None
+        try:
+            cats = cat_picker.pick_cats(
+                self.save_file, current_cats, self.select_method
+            )
+        except tui.TuiUnavailable:
+            self.picker_failed = True
+            return False, None
+        return True, cats
+
+    def select_method(self) -> list[core.Cat] | None:
+        """Upstream's selection-method menu (the picker's Ctrl-O)."""
+        res = dialog_creator.single_select_key(
+            self.select_actions(False), "select_cats"
+        )
+        if res is None:
+            return None
+        return res[0]
+
     def select(
         self, current_cats: list[core.Cat] | None = None, finish_option: bool = True
     ) -> tuple[list[core.Cat], bool]:
         if current_cats is None:
             current_cats = []
-        actions = (
-            dialog_creator.Actions[tuple[Optional[list[core.Cat]], bool]]
-            .new()
-            .add_new_key(
-                "select_cats_all", lambda _: (self.save_file.cats.get_all_cats(), False)
-            )
-            .add_new_key(
-                "select_cats_current", lambda _: (self.get_current_cats(), False)
-            )
-            .add_new_key(
-                "select_cats_obtainable", lambda _: (self.get_cats_obtainable(), False)
-            )
-            .add_new_key("select_cats_id", lambda _: (self.select_id(), False))
-            .add_new_key("select_cats_name", lambda _: (self.select_name(), False))
-            .add_new_key("select_cats_rarity", lambda _: (self.select_rarity(), False))
-            .add_new_key(
-                "select_cats_gatya_banner",
-                lambda _: (self.select_gatya_banner(), False),
-            )
-            .add_new_key(
-                "select_cats_not_unlocked",
-                lambda _: (self.get_non_unlocked_cats(), False),
-            )
-            .add_new_key(
-                "select_cats_not_obtainable",
-                lambda _: (self.get_cats_unobtainable(), False),
-            )
-            .add_new_key(
-                "select_cats_non_gatya", lambda _: (self.get_non_gacha_cats(), False)
-            )
-            .add_new_key(
-                "select_cats_game_version",
-                lambda _: (self.select_cats_game_version(), False),
-            )
-        )
-        if finish_option:
-            actions.add_new_key("finish", lambda _: (None, True))
+        used, cats = self.pick(current_cats)
+        if used:
+            return (current_cats if cats is None else cats), True
 
         res = dialog_creator.single_select_key(
-            actions,
+            self.select_actions(finish_option),
             "select_cats",
         )
 
@@ -137,6 +133,48 @@ class CatEditor:
         if mode == SelectMode.REPLACE:
             return new_cats, False
         return new_cats, False
+
+    def select_actions(
+        self, finish_option: bool
+    ) -> dialog_creator.Actions[tuple[Optional[list[core.Cat]], bool]]:
+        actions = (
+            dialog_creator.Actions[tuple[Optional[list[core.Cat]], bool]]
+            .new()
+            .add_new_key(
+                "select_cats_all", lambda _: (self.save_file.cats.get_all_cats(), False)
+            )
+            .add_new_key(
+                "select_cats_current", lambda _: (self.get_current_cats(), False)
+            )
+            .add_new_key(
+                "select_cats_obtainable", lambda _: (self.get_cats_obtainable(), False)
+            )
+            .add_new_key("select_cats_id", lambda _: (self.select_id(), False))
+            .add_new_key("select_cats_name", lambda _: (self.select_name(), False))
+            .add_new_key("select_cats_rarity", lambda _: (self.select_rarity(), False))
+            .add_new_key(
+                "select_cats_gatya_banner",
+                lambda _: (self.select_gatya_banner(), False),
+            )
+            .add_new_key(
+                "select_cats_not_unlocked",
+                lambda _: (self.get_non_unlocked_cats(), False),
+            )
+            .add_new_key(
+                "select_cats_not_obtainable",
+                lambda _: (self.get_cats_unobtainable(), False),
+            )
+            .add_new_key(
+                "select_cats_non_gatya", lambda _: (self.get_non_gacha_cats(), False)
+            )
+            .add_new_key(
+                "select_cats_game_version",
+                lambda _: (self.select_cats_game_version(), False),
+            )
+        )
+        if finish_option:
+            actions.add_new_key("finish", lambda _: (None, True))
+        return actions
 
     def select_id(self) -> list[core.Cat] | None:
         cat_ids = dialog_creator.range_multi_input_key(
@@ -300,12 +338,11 @@ class CatEditor:
 
         formatted_names: list[str] = []
 
-        for name in new_names:
+        for gatya_id, name in zip(ids, new_names):
             formatted_name = core.core_data.local_manager.get_key(
-                "banner_txt", name=name
+                "banner_txt", name=name, int=gatya_id
             )
             formatted_names.append(formatted_name)
-        # TODO: include ids?
         gatya_option_ids = dialog_creator.multi_select_indexes_key(
             formatted_names,
             dialog="select_gatya_banner",
@@ -427,6 +464,7 @@ class CatEditor:
         upgrade, should_exit = core.Upgrade.get_user_upgrade(
             power_up.get_max_max_base_upgrade_level() - 1,
             power_up.get_max_max_plus_upgrade_level(),
+            len(cats),
         )
         if upgrade is None or should_exit:
             return False
@@ -745,6 +783,11 @@ class CatEditor:
         save_file: core.SaveFile,
     ) -> tuple[CatEditor | None, list[core.Cat]]:
         cat_editor = CatEditor(save_file)
+        used, picked = cat_editor.pick([])
+        if used:
+            if picked is None:
+                return None, []
+            return cat_editor, picked
         stop = False
         cats = []
         while not stop:

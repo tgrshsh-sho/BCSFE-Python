@@ -2,7 +2,7 @@ from __future__ import annotations
 import random
 from typing import Any
 from bcsfe import core
-from bcsfe.cli import color
+from bcsfe.cli import color, tui
 
 
 class Upgrade:
@@ -90,17 +90,41 @@ class Upgrade:
     def get_user_upgrade(
         max_pos_base: int,
         max_pos_plus: int,
+        count: int | None = None,
     ) -> tuple[Upgrade | None, bool]:
+        """Ask for an upgrade level; returns (upgrade, should_exit).
+
+        ``count`` is the number of cats the level is for (shown by the
+        interactive field only)."""
         disable_maxes = core.core_data.config.get_bool(core.ConfigKey.DISABLE_MAXES)
         if disable_maxes:
             max_pos_base = 50_000
             max_pos_plus = 50_000
+        if tui.is_interactive():
+            from bcsfe.cli import cat_picker
+
+            try:
+                return cat_picker.upgrade_input(max_pos_base, max_pos_plus, count)
+            except tui.TuiUnavailable:
+                pass
         color.color_print_key(
             "max_upgrade", max_base=max_pos_base + 1, max_plus=max_pos_plus
         )
         usr_input = color.color_input_key("upgrade_input")
         if usr_input == core.core_data.local_manager.get_key("quit_key"):
             return None, True
+        upgrade = Upgrade.parse_user_upgrade(usr_input, max_pos_base, max_pos_plus)
+        if isinstance(upgrade, str):
+            color.color_print(upgrade)
+            return None, False
+        return upgrade, False
+
+    @staticmethod
+    def parse_user_upgrade(
+        usr_input: str, max_pos_base: int, max_pos_plus: int
+    ) -> Upgrade | str:
+        """Parse an upgrade level typed by the user; an error message
+        (markup) if it is invalid."""
         # example:
         # 10+20 = Upgrade(base=9, plus=20)
         # 10+ = Upgrade(base=9, plus=-1) # -1 means no change
@@ -137,19 +161,17 @@ class Upgrade:
                         min_base = int(range_parts[0]) - 1
                         max_base = min_base
                     except ValueError:
-                        color.color_print_key("invalid_upgrade_base", base=base)
-                        return None, False
+                        return core.localize("invalid_upgrade_base", base=base)
             else:
                 try:
                     min_base = int(range_parts[0]) - 1
                     max_base = int(range_parts[1]) - 1
                 except ValueError:
-                    color.color_print_key(
+                    return core.localize(
                         "invalid_upgrade_base_random",
                         min=range_parts[0],
                         max=range_parts[1],
                     )
-                    return None, False
 
             base_int = (min_base + max_base) // 2
 
@@ -166,19 +188,17 @@ class Upgrade:
                         min_plus = int(range_parts[0])
                         max_plus = min_plus
                     except ValueError:
-                        color.color_print_key("invalid_upgrade_plus", plus=plus)
-                        return None, False
+                        return core.localize("invalid_upgrade_plus", plus=plus)
             else:
                 try:
                     min_plus = int(range_parts[0])
                     max_plus = int(range_parts[1])
                 except ValueError:
-                    color.color_print_key(
+                    return core.localize(
                         "invalid_upgrade_plus_random",
                         min=range_parts[0],
                         max=range_parts[1],
                     )
-                    return None, False
 
             plus_int = (min_plus + max_plus) // 2
 
@@ -191,7 +211,7 @@ class Upgrade:
             max(0, min(min_plus or plus_int, max_pos_plus)),
             max(0, min(max_plus or plus_int, max_pos_plus)),
         )
-        return upgrade, False
+        return upgrade
 
     def copy(self) -> Upgrade:
         upgrade = Upgrade(self.plus, self.base)

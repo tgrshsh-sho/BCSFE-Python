@@ -1,6 +1,6 @@
 from __future__ import annotations
 from bcsfe import core
-from bcsfe.cli import color, dialog_creator
+from bcsfe.cli import cat_picker, color, dialog_creator
 from bcsfe.cli.edits import cat_editor
 
 
@@ -206,7 +206,9 @@ def remove_items(save_file: core.SaveFile):
             continue
         options2.append(get_item_str(item, save_file))
 
-    choices = dialog_creator.multi_select_indexes_key(options2, "select_item")
+    choices = dialog_creator.multi_select_indexes_raw(
+        options2, cat_picker.tr("cats_storage_select")
+    )
     if choices is None:
         return
 
