@@ -50,7 +50,16 @@ class Sandbox:
         return self.root / "config.yaml"
 
     def write_config(self, **values: str) -> None:
-        lines = [f"{key}: {value}" for key, value in values.items()]
+        """Set config values, keeping the ones written before (the editor fills
+        in defaults for every key that is missing)."""
+        current: dict[str, str] = {}
+        if self.config_path.is_file():
+            for line in self.config_path.read_text(encoding="utf-8").splitlines():
+                key, sep, value = line.partition(": ")
+                if sep:
+                    current[key] = value
+        current.update(values)
+        lines = [f"{key}: {value}" for key, value in current.items()]
         self.config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def editor_command(self, save: Path) -> list[str]:
@@ -124,13 +133,17 @@ def sandbox(tmp_path_factory: pytest.TempPathFactory) -> Sandbox:
 def editor_sandbox(
     tmp_path_factory: pytest.TempPathFactory, fixture_game_data: Path
 ) -> Sandbox:
-    """Sandbox with the fixture game data and a copy of the fixture save at
-    ``<root>/SAVE_DATA``."""
+    """Sandbox with the fixture game data, a copy of the fixture save at
+    ``<root>/SAVE_DATA`` and a config pinned to ``locale: en``."""
     if not FIXTURE_SAVE.is_file():
         pytest.skip(f"fixture save not found: {FIXTURE_SAVE}")
     root = _sandbox_root(tmp_path_factory)
     shutil.copyfile(FIXTURE_SAVE, root / "SAVE_DATA")
-    return Sandbox(root, sandbox_env(root), fixture_game_data)
+    sandbox = Sandbox(root, sandbox_env(root), fixture_game_data)
+    # The fork defaults to Japanese; tests that assert upstream's English
+    # wording pin it here, others call write_config(locale="ja").
+    sandbox.write_config(locale="en")
+    return sandbox
 
 
 @pytest.fixture

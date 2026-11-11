@@ -2,3 +2,5 @@ PyJWT==2.13
 PyYAML==6.0.3
 Requests==2.34.2
 argparse==1.4.0
+prompt_toolkit>=3.0.50
+cryptography>=43

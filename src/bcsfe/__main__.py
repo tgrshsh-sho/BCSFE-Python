@@ -11,7 +11,11 @@ import argparse
 from importlib import resources
 
 
-def migrate(force: bool):
+def migrate(force: bool) -> str | None:
+    """Copy the packaged files/ into the data folder when the version changed.
+
+    Returns the version the data folder was last used with (None for a new folder).
+    """
     # the full version, so that a new fork revision copies files/ (e.g. locales) again
     version = bcsfe.get_full_version()
     v_path = core.Path.get_data_folder().add("version.txt")
@@ -31,6 +35,25 @@ def migrate(force: bool):
         p = resources.files(__app_name__).joinpath("files")
         copy_to_data_dir(p, p)
         v_path.write(core.Data(version))
+    return vers
+
+
+def apply_fork_defaults(previous_version: str | None) -> None:
+    """First start of the fork on a data folder the stock editor used before.
+
+    The stock editor writes every default into the config, so ``locale: en`` is
+    there even if nobody chose it; the fork is Japanese first and switches it to
+    ``ja`` once. A language chosen later is kept: from then on the folder
+    records a fork version.
+    """
+    if previous_version is None or "+jp" in previous_version:
+        return
+    config = core.core_data.config
+    if config.get_str(core.ConfigKey.LOCALE) != "en":
+        return
+    config.set(core.ConfigKey.LOCALE, "ja")
+    core.core_data.local_manager = core.LocalManager()
+    cli.color.color_print_key("fork_locale_switched")
 
 
 def main():
@@ -93,9 +116,10 @@ def main():
     if args.data_dir is not None:
         core.set_data_dir_path(core.Path(args.data_dir))
 
-    migrate(args.force_migrate)
+    previous_version = migrate(args.force_migrate)
 
     core.core_data.init_data()
+    apply_fork_defaults(previous_version)
 
     try:
         cli.main.Main().main(args.input_path)

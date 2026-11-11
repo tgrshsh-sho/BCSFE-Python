@@ -153,6 +153,83 @@ def test_migrate_on_a_fresh_data_dir(editor_env: pathlib.Path) -> None:
     assert (data / "themes" / "default.json").is_file()
 
 
+def _start_with(
+    editor_env: pathlib.Path, version_txt: str | None, locale: str
+) -> str | None:
+    """Mimic a start: data folder last used by ``version_txt``, config with ``locale``."""
+    import bcsfe.__main__ as entry
+
+    data = editor_env / "data"
+    if version_txt is not None:
+        (data / "version.txt").write_text(version_txt)
+    (editor_env / "config.yaml").write_text(f"locale: {locale}\n")
+    previous = entry.migrate(False)
+    core.core_data.init_data()
+    entry.apply_fork_defaults(previous)
+    return previous
+
+
+def _config_locale(editor_env: pathlib.Path) -> str:
+    import yaml
+
+    return yaml.safe_load((editor_env / "config.yaml").read_text())["locale"]
+
+
+def test_first_fork_start_switches_stock_english_to_japanese(
+    editor_env: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = record_prints(monkeypatch)
+
+    previous = _start_with(editor_env, "3.6.0", "en")
+
+    assert previous == "3.6.0"
+    assert core.core_data.config.get_str(core.ConfigKey.LOCALE) == "ja"
+    assert core.core_data.local_manager.locale == "ja"
+    assert _config_locale(editor_env) == "ja"
+    assert [key for key, _ in printed] == ["fork_locale_switched"]
+    message = core.core_data.local_manager.get_key("fork_locale_switched")
+    assert "日本語" in message and "{{" not in message
+
+
+def test_language_chosen_on_the_fork_is_kept(
+    editor_env: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = record_prints(monkeypatch)
+
+    _start_with(editor_env, bcsfe.get_full_version(), "en")
+
+    assert _config_locale(editor_env) == "en"
+    assert printed == []
+
+
+@pytest.mark.parametrize("locale", ["tw", "vi", "ja"])
+def test_other_stock_languages_are_kept(
+    editor_env: pathlib.Path, monkeypatch: pytest.MonkeyPatch, locale: str
+) -> None:
+    printed = record_prints(monkeypatch)
+
+    _start_with(editor_env, "3.6.0", locale)
+
+    assert _config_locale(editor_env) == locale
+    assert printed == []
+
+
+def test_new_data_folder_uses_the_config_as_is(
+    editor_env: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = record_prints(monkeypatch)
+
+    previous = _start_with(editor_env, None, "en")
+
+    assert previous is None
+    assert _config_locale(editor_env) == "en"
+    assert printed == []
+
+
+def test_japanese_is_the_default_locale() -> None:
+    assert core.Config.get_defaults()[core.ConfigKey.LOCALE] == "ja"
+
+
 # ------------------------------------------------------------------------ updater
 
 
@@ -254,8 +331,11 @@ def test_updater_versions() -> None:
 def test_fork_locale_keys(editor_env: pathlib.Path) -> None:
     packaged = resources.files("bcsfe").joinpath("files")
     bcsfe.copy_to_data_dir(packaged, packaged)
-    en = core.locale_handler.PropertySet("en", "fork/updater").properties
-    ja = core.locale_handler.PropertySet("ja", "fork/updater").properties
+    en: dict[str, tuple[str, str]] = {}
+    ja: dict[str, tuple[str, str]] = {}
+    for name in ("fork/updater", "fork/migration"):
+        en.update(core.locale_handler.PropertySet("en", name).properties)
+        ja.update(core.locale_handler.PropertySet("ja", name).properties)
 
     pattern = re.compile(r"[\"'](fork_[a-z0-9_]+)[\"']")
     used = {
