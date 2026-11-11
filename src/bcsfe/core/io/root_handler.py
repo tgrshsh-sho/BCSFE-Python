@@ -1,5 +1,7 @@
 from __future__ import annotations
 from bcsfe import core
+import os
+import sys
 import tempfile
 
 
@@ -12,7 +14,14 @@ class RootHandler:
         self.package_name = None
 
     def is_android(self) -> bool:
-        return core.Path.get_root().add("system").exists()
+        # Not just "/system": macOS has /System and APFS is case-insensitive.
+        if sys.platform == "android":
+            return True
+        if "ANDROID_ROOT" in os.environ and "ANDROID_DATA" in os.environ:
+            return True  # set by Android for every process (Termux, Pydroid)
+        return (
+            core.Path.get_root().add("system").add("bin").add("app_process").exists()
+        )
 
     def set_package_name(self, package_name: str):
         self.package_name = package_name

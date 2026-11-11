@@ -125,6 +125,7 @@ def pick(
     filter: ListFilter | None = None,
     extra_keys: Sequence[ExtraKey] = (),
     query: str = "",
+    hint: str | None = None,
     fallback: bool = True,
 ) -> ListResult | None:
     """:func:`select` / :func:`multi_select` with more control, for screens
@@ -136,6 +137,7 @@ def pick(
       the indexes to show, in order (headings only if it returns them).
     - ``extra_keys`` end the list early; the result tells which one.
     - ``query`` is the initial text of the query field.
+    - ``hint`` replaces the first key-hint line (e.g. when Esc means "exit").
 
     Returns None when cancelled or when there is no selectable row.  Without
     an interactive terminal the classic numbered prompt is used: headings are
@@ -158,6 +160,7 @@ def pick(
                 filter=filter,
                 extra_keys=extra_keys,
                 query=query,
+                hint=hint,
             )
         except EOFError:
             raise
@@ -166,10 +169,11 @@ def pick(
     _unavailable(fallback)
     if multi:
         indexes = classic.multi_select(title, items, footer)
-    else:
-        index = classic.select(title, items, footer)
-        indexes = None if index is None else [index]
-    return None if indexes is None else ListResult(tuple(indexes))
+        if indexes is None:
+            return None
+        return ListResult(tuple(indexes), checked=tuple(indexes))
+    index = classic.select(title, items, footer)
+    return None if index is None else ListResult((index,))
 
 
 def confirm(

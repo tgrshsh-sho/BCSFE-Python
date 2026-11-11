@@ -51,11 +51,14 @@ class ListResult:
     select) or the checked rows, else the highlighted one (multi select); for
     an extra key the same rows at that moment (may be empty).  ``key`` is the
     :attr:`ExtraKey.name` that ended the list, None for Enter.  ``query`` is
-    the text in the query field at that moment."""
+    the text in the query field at that moment.  ``checked`` are only the
+    checked rows (multi select; empty when none is checked), so that a caller
+    can tell them from the highlighted row."""
 
     indexes: tuple[int, ...]
     key: str | None = None
     query: str = ""
+    checked: tuple[int, ...] = ()
 
 
 # Custom filter for the list widgets: query -> indexes of the rows to show,

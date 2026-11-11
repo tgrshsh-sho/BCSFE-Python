@@ -495,7 +495,12 @@ def test_pick_extra_key_reports_rows_and_query() -> None:
     result = pick("beta", CTRL_O, extra_keys=(MORE,))
     assert result == tui.ListResult((4,), "more", "beta")
     result = pick(TAB, CTRL_O, multi=True, extra_keys=(MORE,))
-    assert result == tui.ListResult((1,), "more", "")
+    assert result == tui.ListResult((1,), "more", "", checked=(1,))
+    # nothing checked: the highlighted row is reported, `checked` stays empty
+    result = pick(DOWN, CTRL_O, multi=True, extra_keys=(MORE,))
+    assert result == tui.ListResult((2,), "more", "", checked=())
+    result = pick(TAB, TAB, ENTER, multi=True)
+    assert result == tui.ListResult((1, 2), None, "", checked=(1, 2))
     result = pick("zzz", CTRL_O, extra_keys=(MORE,))
     assert result == tui.ListResult((), "more", "zzz")
     assert pick(CTRL_O, ESC) is None  # without extra_keys Ctrl-O does nothing
@@ -539,7 +544,9 @@ def test_pick_classic_numbers_only_selectable_rows(
         " 3. <@t>b1</>",
     ]
     # multi: "4" is the trailing "all" entry
-    assert tui.pick("t", SECTIONS, multi=True) == tui.ListResult((1, 2, 4))
+    assert tui.pick("t", SECTIONS, multi=True) == tui.ListResult(
+        (1, 2, 4), checked=(1, 2, 4)
+    )
 
 
 def test_integer_max_word() -> None:

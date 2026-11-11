@@ -630,6 +630,7 @@ def run_list(
     filter: ListFilter | None = None,
     extra_keys: Sequence[ExtraKey] = (),
     query: str = "",
+    hint: str | None = None,
 ) -> ListResult | None:
     state = ListState(
         choices,
@@ -639,7 +640,7 @@ def run_list(
         filter=filter,
         query=query,
     )
-    hints = [strings.tr("tui_hint_select")]
+    hints = [hint if hint is not None else strings.tr("tui_hint_select")]
     if multi:
         hints.append(strings.tr("tui_hint_multi"))
     if extra_keys:
@@ -719,17 +720,22 @@ def run_list(
         index = state.current()
         return None if index is None else [index]
 
+    def checked() -> tuple[int, ...]:
+        return tuple(sorted(state.selected)) if multi else ()
+
     @bind(kb, "enter")
     def _enter(event: KeyPressEvent) -> None:
         rows = chosen()
         if rows is not None:
-            event.app.exit(result=ListResult(tuple(rows), None, buffer.text))
+            result = ListResult(tuple(rows), None, buffer.text, checked())
+            event.app.exit(result=result)
 
     for extra in extra_keys:
 
         def _extra(event: KeyPressEvent, extra: ExtraKey = extra) -> None:
             rows = chosen() or []
-            event.app.exit(result=ListResult(tuple(rows), extra.name, buffer.text))
+            result = ListResult(tuple(rows), extra.name, buffer.text, checked())
+            event.app.exit(result=result)
 
         bind(kb, extra.key)(_extra)
 
@@ -773,6 +779,7 @@ def pick(
     filter: ListFilter | None,
     extra_keys: Sequence[ExtraKey],
     query: str,
+    hint: str | None = None,
 ) -> ListResult | None:
     return run_list(
         title,
@@ -784,6 +791,7 @@ def pick(
         filter=filter,
         extra_keys=extra_keys,
         query=query,
+        hint=hint,
     )
 
 
