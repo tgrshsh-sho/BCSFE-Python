@@ -1,5 +1,7 @@
 from __future__ import annotations
 import base64
+import os
+import threading
 from typing import Any
 from bcsfe import core, __version__, cli
 import datetime
@@ -2255,8 +2257,52 @@ class SaveFile:
                 core.core_data.local_manager.get_key("failed_to_save_save")
             ) from e
 
-    def to_file_thread(self, path: core.Path):
-        core.Thread("to_file", self.to_file, [path]).start()
+    # to_file_thread: one background write at a time, the newest snapshot wins
+    _write_lock = threading.Lock()
+    _write_generations: dict[str, int] = {}
+
+    def to_file_thread(self, path: core.Path) -> core.Thread | None:
+        """Write the save to ``path`` in a background thread (the temp save
+        after every feature).
+
+        The save is serialised here, on the calling thread: ``to_data`` rebuilds
+        ``self.data``, so serialising in the background raced with the next
+        edit and with other ``to_data`` calls.  The file is replaced atomically
+        (see :meth:`write_atomic`), so a reader such as the crash recovery in
+        ``Main.exit_editor`` sees the previous or the new save, never a partly
+        written one, and an older snapshot never replaces a newer one.
+        """
+        try:
+            dt = self.to_data()
+        except Exception as e:
+            print(e)
+            return None
+        with SaveFile._write_lock:
+            generation = SaveFile._write_generations.get(path.path, 0) + 1
+            SaveFile._write_generations[path.path] = generation
+        thread = core.Thread(
+            "to_file", SaveFile._write_snapshot, [dt, path, generation]
+        )
+        thread.start()
+        return thread
+
+    @staticmethod
+    def _write_snapshot(dt: core.Data, path: core.Path, generation: int) -> None:
+        with SaveFile._write_lock:
+            if SaveFile._write_generations.get(path.path) != generation:
+                return  # a newer snapshot of this path is waiting for the lock
+            try:
+                SaveFile.write_atomic(dt, path)
+            except Exception as e:
+                print(e)
+
+    @staticmethod
+    def write_atomic(dt: core.Data, path: core.Path) -> None:
+        """Write ``dt`` to a sibling file first, then rename it to ``path``."""
+        path.parent().generate_dirs()
+        partial = core.Path(path.path + ".partial")
+        dt.to_file(partial)
+        os.replace(partial.path, path.path)
 
     def to_file(self, path: core.Path) -> None:
         path.parent().generate_dirs()

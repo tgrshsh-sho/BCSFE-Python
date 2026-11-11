@@ -8,10 +8,13 @@ from typing import Any, NoReturn
 from bcsfe.cli import (
     file_dialog,
     color,
+    dialog_creator,
     feature_handler,
+    home_text,
     save_management,
+    tui,
 )
-from bcsfe import core, __app_name__
+from bcsfe import core, __app_name__, get_full_version
 import json
 
 
@@ -32,15 +35,34 @@ class Main:
         """Main function for the CLI."""
         self.wipe_temp_save()
         core.GameDataGetter.delete_old_versions(5)
-        self.print_locale_version()
-        print()
-        self.print_start_text()
+        self.print_start_header()
         while not self.exit:
             stop = self.load_save_options(input_path)
             if stop:
                 break
 
-    def print_locale_version(self):
+    @staticmethod
+    def print_start_header():
+        """Short start text: name and version, attribution and the warning.
+
+        The full upstream text (credits, links, file locations) is shown by
+        :meth:`show_about`."""
+        color.color_print(
+            home_text.tr("home_start_header", version=get_full_version())
+        )
+        print()
+
+    @staticmethod
+    def show_about(_: Any = None) -> None:
+        """The "about this editor" feature: the version and the full start
+        text of the upstream editor."""
+        print()
+        Main.print_locale_version()
+        print()
+        Main.print_start_text()
+
+    @staticmethod
+    def print_locale_version():
         updater = core.Updater()
         local_version = updater.get_local_version()
 
@@ -81,7 +103,8 @@ class Main:
         else:
             color.color_print_key("no_update_required", app_name=__app_name__)
 
-    def print_start_text(self):
+    @staticmethod
+    def print_start_text():
         external_theme = core.ExternalThemeManager.get_external_theme_config()
         external_locale = core.ExternalLocaleManager.get_external_locale_config()
         if external_theme is None:
@@ -128,7 +151,8 @@ class Main:
             )
         color.color_print_key(
             "welcome",
-            config_path=core.core_data.config.get_config_path(),
+            # the file in use (get_config_path() ignores --config-path)
+            config_path=core.core_data.config.config_object.path,
             locale_text=locale_text,
             theme_text=theme_text,
             escape=False,
@@ -142,17 +166,24 @@ class Main:
             return stop
         self.save_file = save_file
 
+        if not tui.is_interactive():  # the interactive home shows it in its summary
+            Main.print_current_save(save_file)
+
+        self.feature_handler()
+        return False
+
+    @staticmethod
+    def print_current_save(save_file: core.SaveFile):
         color.color_print_key(
             "current_save",
-            inquiry_code=save_file.inquiry_code[:4]
-            + "***"
-            + save_file.inquiry_code[-2:],
+            inquiry_code=Main.masked_inquiry_code(save_file),
             gv=save_file.game_version,
             cc=save_file.cc,
         )
 
-        self.feature_handler()
-        return False
+    @staticmethod
+    def masked_inquiry_code(save_file: core.SaveFile) -> str:
+        return save_file.inquiry_code[:4] + "***" + save_file.inquiry_code[-2:]
 
     def feature_handler(self):
         """Run the feature handler."""
@@ -260,28 +291,33 @@ class Main:
 
     @staticmethod
     def exit_editor(
-        save_file: core.SaveFile | None = None, check_temp: bool = True
-    ) -> NoReturn:
-        """Exit the editor."""
-        save_file_temp = None
-        if check_temp:
+        save_file: core.SaveFile | None = None,
+        check_temp: bool = True,
+        cancellable: bool = False,
+    ) -> None:
+        """Exit the editor, offering to save the changes first.
+
+        ``save_file`` is the save being edited and is used as it is.  Without
+        it (crash recovery) the save is restored from the temp file when
+        ``check_temp`` is set.  With ``cancellable`` (the interactive home)
+        cancelling the save question, or the file dialog of an unsaved save,
+        returns instead of exiting; it is the only way this returns.
+        """
+        if save_file is None and check_temp:
+            # not when the save is given: the temp file may still be written
             temp_path = core.SaveFile.get_temp_path()
             if temp_path.exists():
                 try:
-                    save_file_temp = core.SaveFile(temp_path.read())
+                    save_file = core.SaveFile(temp_path.read())
                 except core.SaveError as e:
                     tb = traceback.format_exc()
                     color.color_print_key("save_temp_fail", error=str(e), traceback=tb)
                     Main.leave()
 
         if save_file is None:
-            save_file = save_file_temp
-        if save_file is None:
             if check_temp:
                 color.color_print_key("save_temp_not_found")
             Main.leave()
-        if save_file_temp is None:
-            save_file_temp = save_file
 
         try:
             print()
@@ -290,15 +326,20 @@ class Main:
                 same = False
             else:
                 same = save_file.save_path.read() == save_file.to_data()
-        except core.SaveError:
+        except (core.SaveError, OSError):
             same = False
 
         if not same:
             color.color_print_key("changes_found")
             print()
-            save = color.color_input_key("save_before_exit") == "y"
+            # Enter keeps the edits: losing them is worse than an extra save
+            save = dialog_creator.yes_no_key("save_before_exit", default_yes=True)
+            if save is None and cancellable:
+                return
             if save:
                 save_management.SaveManagement.save_save(save_file)
+                if save_file.save_path is None and cancellable:
+                    return
         else:
             color.color_print_key("no_changes")
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any, Callable
 from bcsfe import core
-from bcsfe.cli import dialog_creator, color, edits, save_management, main
+from bcsfe.cli import dialog_creator, color, edits, save_management, main, home, tui
 
 
 class FeatureHandler:
@@ -140,6 +140,7 @@ class FeatureHandler:
                 "config": core.core_data.config.edit_config,
                 "update_external": core.update_external_content,
                 "manage_game_data": core.manage_game_data,
+                "home_about": main.Main.show_about,
             },
             "exit": main.Main.exit_editor,
         }
@@ -254,6 +255,11 @@ class FeatureHandler:
         edits.clear_tutorial.clear_tutorial(self.save_file, False)
         self.save_file.show_ban_message = False
 
+        if tui.is_interactive():
+            home.Home(self).run()
+            # back here only when the prompts became classic (ui_mode)
+            main.Main.print_current_save(self.save_file)
+
         while True:
             features = self.select_features(features, [])
 
@@ -288,6 +294,19 @@ class FeatureHandler:
                 features = [[k] for k in features_dict.keys()]
 
                 core.core_data.game_data_getter = None  # reset game data getter so that if an old version is removed, it will download the new version
+
+    def run_feature(self, feature_path: list[str]):
+        """Run one feature the way the menu loop above does (the home uses it)."""
+        feature = self.get_feature(feature_path)
+        if not isinstance(feature, Callable):
+            return
+        self.do_save_actions()
+
+        feature(self.save_file)
+
+        self.save_file.to_file_thread(self.save_file.get_temp_path())
+
+        core.core_data.game_data_getter = None  # see select_features_run
 
     def do_save_actions(self):
         if core.core_data.config.get_bool(core.ConfigKey.CLEAR_TUTORIAL_ON_LOAD):

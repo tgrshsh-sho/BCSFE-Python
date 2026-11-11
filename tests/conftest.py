@@ -97,6 +97,9 @@ def sandbox_env(root: Path) -> dict[str, str]:
         folder = root / "xdg" / name.lower()
         folder.mkdir(parents=True, exist_ok=True)
         env[f"XDG_{name}_HOME"] = str(folder)
+    home = root / "home"  # anything that still uses ~ stays in the sandbox
+    home.mkdir(parents=True, exist_ok=True)
+    env["HOME"] = str(home)
     for var in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY"):
         env[var] = _NO_NETWORK
     env["NO_PROXY"] = ""
