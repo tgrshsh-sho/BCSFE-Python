@@ -140,10 +140,12 @@ def display_options_raw(options: list[str], dialog: str):
     color.color_print("\n".join(lines))
 
 
-def yes_no_raw(dialog: str) -> bool | None:
+def yes_no_raw(dialog: str, *, default_yes: bool = False) -> bool | None:
+    """``default_yes`` highlights "yes" in the interactive prompt; the classic
+    prompt is unchanged (only the yes key means yes)."""
     if tui.is_interactive():
         try:
-            return tui.confirm(dialog, default=False, fallback=False)
+            return tui.confirm(dialog, default=default_yes, fallback=False)
         except tui.TuiUnavailable:
             pass
     inp = str_input_raw(dialog)
@@ -276,8 +278,10 @@ def range_multi_input_raw(dialog: str, max: MaxValue, min: int = 0) -> list[int]
     return nums
 
 
-def yes_no_key(dialog: str, escape: bool = False, **kwargs: Any) -> bool | None:
-    return yes_no_raw(core.localize(dialog, escape, **kwargs))
+def yes_no_key(
+    dialog: str, escape: bool = False, *, default_yes: bool = False, **kwargs: Any
+) -> bool | None:
+    return yes_no_raw(core.localize(dialog, escape, **kwargs), default_yes=default_yes)
 
 
 def multi_select_raw(options: list[str], dialog: str) -> list[str] | None:
@@ -352,18 +356,24 @@ def multi_select_entries_raw(
 
         for inp in inps:
             if not inp.isdigit():
-                color.color_print_key("invalid_input_int", min=min, max=actions.max())
+                color.color_print_key(
+                    "invalid_input_int", min=offset, max=actions.max()
+                )
                 continue
 
             inp_i = int(inp)
             inp_i -= offset
             if inp_i < 0:
-                color.color_print_key("invalid_input_int", min=min, max=actions.max())
+                color.color_print_key(
+                    "invalid_input_int", min=offset, max=actions.max()
+                )
                 break
 
             action = actions.get_rebase(inp_i)
             if action is None:
-                color.color_print_key("invalid_input_int", min=min, max=actions.max())
+                color.color_print_key(
+                    "invalid_input_int", min=offset, max=actions.max()
+                )
                 break
 
             ids.extend(action[0].run(action[1]))
@@ -371,7 +381,9 @@ def multi_select_entries_raw(
             return ids
 
 
-def single_select_raw(actions: Actions[T], dialog: str) -> T | None:
+def single_select_raw(actions: Actions[T], dialog: str, default: int = 0) -> T | None:
+    """``default`` is the option highlighted first by the interactive prompt
+    (the classic numbered prompt ignores it)."""
     if actions.max() == 0:
         return None
     if actions.len() == 1 and actions.actions[0].len() == 1:
@@ -379,7 +391,7 @@ def single_select_raw(actions: Actions[T], dialog: str) -> T | None:
     if tui.is_interactive():
         labels = [opt for act in actions.actions for opt in act.options]
         try:
-            index = tui.select(dialog, labels, fallback=False)
+            index = tui.select(dialog, labels, default=default, fallback=False)
         except tui.TuiUnavailable:
             pass
         else:
@@ -426,9 +438,13 @@ def single_select_key(
     actions: Actions[T],
     dialog_key: str,
     escape: bool = True,
+    *,
+    default: int = 0,
     **kwargs: Any,
 ) -> T | None:
-    return single_select_raw(actions, core.localize(dialog_key, escape, **kwargs))
+    return single_select_raw(
+        actions, core.localize(dialog_key, escape, **kwargs), default
+    )
 
 
 def basic_pick_raw_entry(items: list[str], dialog: str) -> tuple[int, str] | None:
@@ -571,6 +587,8 @@ def edit_int_raw(item_name: str, current_value: int, max: MaxValue) -> int:
                 current=current_value,
                 clamp=True,
                 show_range=max.show,
+                # "max" is the game's maximum; with disable_maxes there is none
+                allow_max=max.show,
                 fallback=False,
             )
         except tui.TuiUnavailable:
@@ -598,10 +616,17 @@ def int_input_key(
     default: int | None = None,
     auto_clamp: bool = False,
     escape: bool = True,
+    *,
+    allow_max: bool = False,
     **kwargs: Any,
 ) -> int | None:
     return int_input_raw(
-        core.localize(dialog, escape, **kwargs), _max, min, default, auto_clamp
+        core.localize(dialog, escape, **kwargs),
+        _max,
+        min,
+        default,
+        auto_clamp,
+        allow_max=allow_max,
     )
 
 
@@ -615,7 +640,10 @@ def int_input_raw(
     _min: int = 0,
     default: int | None = None,
     auto_clamp: bool = False,
+    *,
+    allow_max: bool = False,
 ) -> int | None:
+    """``allow_max``: the interactive prompt also takes ``max`` for ``_max``."""
     if tui.is_interactive():
         try:
             return tui.integer(
@@ -626,6 +654,7 @@ def int_input_raw(
                 clamp=auto_clamp,
                 show_range=_max.show,
                 current_label=tui_strings.tr("tui_default_label"),
+                allow_max=allow_max,
                 fallback=False,
             )
         except tui.TuiUnavailable:
@@ -795,6 +824,7 @@ def edit_ints_raw(
             lambda _: edit_many(current_values, max, entries, group_name, item_names),
         ),
         "individual_or_all_at_once",
+        default=1,  # several items were picked: usually one value for all
         group=group_name,
     )
 
@@ -838,7 +868,12 @@ def edit_many(
     else:
         _max = max
     val = int_input_key(
-        "input_generic", _max, name=group_name, auto_clamp=True, max=_max.max
+        "input_generic",
+        _max,
+        name=group_name,
+        auto_clamp=True,
+        allow_max=_max.show,
+        max=_max.max,
     )
     if val is None:
         return
