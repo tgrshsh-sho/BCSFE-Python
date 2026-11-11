@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from bcsfe import core
@@ -24,6 +25,42 @@ class Choice:
     label: str
     keywords: str = ""
     hint: str = ""
+    # A section heading: shown while the query is empty (or when a custom
+    # filter returns it), never highlighted, checked or returned.
+    heading: bool = False
+
+
+@dataclass(frozen=True)
+class ExtraKey:
+    """A key that ends a list widget early (see :func:`~.widgets.pick`).
+
+    ``key`` is a prompt_toolkit key name (``"c-o"``, ``"f2"``); ``label`` is
+    shown next to it in the key hints; ``name`` is returned in
+    :attr:`ListResult.key`."""
+
+    name: str
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ListResult:
+    """How a list widget ended (see :func:`~.widgets.pick`).
+
+    ``indexes`` are the chosen rows: for Enter the highlighted row (single
+    select) or the checked rows, else the highlighted one (multi select); for
+    an extra key the same rows at that moment (may be empty).  ``key`` is the
+    :attr:`ExtraKey.name` that ended the list, None for Enter.  ``query`` is
+    the text in the query field at that moment."""
+
+    indexes: tuple[int, ...]
+    key: str | None = None
+    query: str = ""
+
+
+# Custom filter for the list widgets: query -> indexes of the rows to show,
+# in display order (headings included only if returned).
+ListFilter = Callable[[str], Sequence[int]]
 
 
 class TuiUnavailable(RuntimeError):

@@ -57,7 +57,7 @@ from prompt_toolkit.utils import get_cwidth
 from bcsfe import core
 from bcsfe.cli import color
 from bcsfe.cli.tui import matching, strings
-from bcsfe.cli.tui.base import Choice
+from bcsfe.cli.tui.base import Choice, ExtraKey, ListFilter, ListResult
 
 R = TypeVar("R")
 Handler = Callable[[KeyPressEvent], None]
@@ -111,6 +111,7 @@ def build_style() -> Style:
             ("counter", dim),
             ("selected-count", f"{success} bold"),
             ("row-hint", dim),
+            ("heading", f"{accent} bold"),
             ("no-match", f"{dim} italic"),
             ("hint", dim),
             ("info", dim),
@@ -378,7 +379,11 @@ def prompt_window() -> Window:
 
 
 class ListState:
-    """Filter, cursor, scroll and check marks of a list widget."""
+    """Filter, cursor, scroll and check marks of a list widget.
+
+    ``visible`` holds indexes into ``choices`` in display order; ``cursor`` is
+    a position in ``visible``.  Heading rows (``Choice.heading``) can be
+    visible but are skipped by the cursor and never checked or returned."""
 
     def __init__(
         self,
@@ -388,38 +393,80 @@ class ListState:
         default: int = 0,
         selected: Iterable[int] = (),
         max_rows: int = MAX_ROWS,
+        filter: ListFilter | None = None,
+        query: str = "",
     ) -> None:
         total = len(choices)
         self.choices = list(choices)
         self.multi = multi
+        self.selectable = [not c.heading for c in self.choices]
         self.matcher = matching.Matcher(
             [c.label for c in self.choices], [c.keywords for c in self.choices]
         )
-        self.visible: list[int] = list(range(total))
-        self.cursor = min(max(default, 0), max(total - 1, 0))
+        self.custom_filter = filter
+        self.visible: list[int] = []
+        self.cursor = 0
         self.top = 0
-        self.selected: set[int] = {i for i in selected if 0 <= i < total}
+        self.selected: set[int] = {
+            i for i in selected if 0 <= i < total and self.selectable[i]
+        }
         self.rows = max(1, min(total, max_rows))
         self.page = self.rows
         self._labels: dict[int, StyleAndTextTuples] = {}
         self.glyphs = glyphs()
+        self.refilter(query)
+        default = min(max(default, 0), max(total - 1, 0))
+        if total and self.selectable[default] and default in self.visible:
+            self.cursor = self.visible.index(default)
 
     # state changes
+    def _filtered(self, query: str) -> list[int]:
+        total = len(self.choices)
+        if self.custom_filter is not None:
+            seen: set[int] = set()
+            rows: list[int] = []
+            for i in self.custom_filter(query):
+                if 0 <= i < total and i not in seen:
+                    seen.add(i)
+                    rows.append(i)
+            return rows
+        if not matching.split_query(query):
+            return list(range(total))
+        return [i for i in self.matcher.filter(query) if self.selectable[i]]
+
     def refilter(self, query: str) -> None:
-        self.visible = self.matcher.filter(query)
-        self.cursor = 0
+        self.visible = self._filtered(query)
         self.top = 0
+        self.cursor = self._snap(0, 1)
+
+    def _snap(self, position: int, direction: int) -> int:
+        """Nearest selectable position from ``position``, searching in
+        ``direction`` first; ``position`` itself when nothing is selectable."""
+        count = len(self.visible)
+        if count == 0:
+            return 0
+        position = max(0, min(count - 1, position))
+        for step in (direction, -direction):
+            p = position
+            while 0 <= p < count:
+                if self.selectable[self.visible[p]]:
+                    return p
+                p += step
+        return position
 
     def current(self) -> int | None:
-        return self.visible[self.cursor] if self.visible else None
+        if not self.visible:
+            return None
+        index = self.visible[self.cursor]
+        return index if self.selectable[index] else None
 
     def move(self, delta: int) -> None:
         if self.visible:
-            self.cursor = max(0, min(len(self.visible) - 1, self.cursor + delta))
+            self.cursor = self._snap(self.cursor + delta, 1 if delta >= 0 else -1)
 
-    def move_to(self, position: int) -> None:
+    def move_to(self, position: int, direction: int = 1) -> None:
         if self.visible:
-            self.cursor = max(0, min(len(self.visible) - 1, position))
+            self.cursor = self._snap(position, direction)
 
     def toggle(self) -> None:
         index = self.current()
@@ -431,7 +478,7 @@ class ListState:
             self.selected.add(index)
 
     def check_visible(self) -> None:
-        self.selected.update(self.visible)
+        self.selected.update(i for i in self.visible if self.selectable[i])
 
     def clear(self) -> None:
         self.selected.clear()
@@ -458,16 +505,32 @@ class ListState:
             self.top = self.cursor
         elif self.cursor >= self.top + height:
             self.top = self.cursor - height + 1
+        # keep the heading right above the highlighted row in view
+        above = self.cursor - 1
+        if (
+            0 <= above < self.top
+            and not self.selectable[self.visible[above]]
+            and self.cursor - above < height
+        ):
+            self.top = above
         self.top = max(0, min(self.top, max(0, len(self.visible) - height)))
 
     def row(self, position: int, width: int) -> StyleAndTextTuples:
         index = self.visible[position]
         choice = self.choices[index]
+        pointer_space = " " * get_cwidth(self.glyphs.pointer)
+        if choice.heading:
+            frags: StyleAndTextTuples = [("", pointer_space)]
+            heading: StyleAndTextTuples = [
+                ("class:heading " + f[0], f[1]) for f in self.label(index)
+            ]
+            room = width - len(pointer_space)
+            return frags + truncate(heading, room, self.glyphs.ellipsis)
         is_current = position == self.cursor
-        frags: StyleAndTextTuples = [
+        frags = [
             ("class:pointer", self.glyphs.pointer)
             if is_current
-            else ("", " " * get_cwidth(self.glyphs.pointer))
+            else ("", pointer_space)
         ]
         if self.multi:
             if index in self.selected:
@@ -499,10 +562,14 @@ class ListState:
             style = "class:selected-count" if self.selected else "class:counter"
             count = strings.tr("tui_selected_count", count=len(self.selected))
             frags += [(style, plain(count)), ("", "  ")]
-        shown = strings.tr(
-            "tui_counter", shown=len(self.visible), total=len(self.choices)
+        shown = sum(1 for i in self.visible if self.selectable[i])
+        total = sum(1 for flag in self.selectable if flag)
+        frags.append(
+            (
+                "class:counter",
+                plain(strings.tr("tui_counter", shown=shown, total=total)),
+            )
         )
-        frags.append(("class:counter", plain(shown)))
         return frags
 
 
@@ -526,17 +593,30 @@ class ListControl(UIControl):
         )
 
 
-def _list_summary(state: ListState, result: int | list[int] | None) -> str | None:
+def _list_summary(state: ListState, result: Sequence[int] | None) -> str | None:
     if result is None:
         return None
-    indexes = [result] if isinstance(result, int) else result
-    labels = [plain(state.choices[i].label).strip() for i in indexes]
+    labels = [plain(state.choices[i].label).strip() for i in result]
     if len(labels) <= 3:
         return " / ".join(labels)
     many = strings.tr(
         "tui_summary_many", count=len(labels), items=" / ".join(labels[:3])
     )
     return plain(many)
+
+
+_KEY_NAMES = {"escape": "Esc", "tab": "Tab", "s-tab": "Shift-Tab", "enter": "Enter"}
+
+
+def key_label(key: str) -> str:
+    """Display name of a prompt_toolkit key: ``c-o`` -> ``Ctrl-O``, ``f2`` -> ``F2``."""
+    if key in _KEY_NAMES:
+        return _KEY_NAMES[key]
+    if key.startswith("c-") and len(key) > 2:
+        return "Ctrl-" + key[2:].upper()
+    if re.fullmatch(r"f\d{1,2}", key):
+        return key.upper()
+    return key
 
 
 def run_list(
@@ -547,17 +627,31 @@ def run_list(
     default: int = 0,
     selected: Iterable[int] = (),
     footer: str | None = None,
-) -> int | list[int] | None:
-    state = ListState(choices, multi=multi, default=default, selected=selected)
+    filter: ListFilter | None = None,
+    extra_keys: Sequence[ExtraKey] = (),
+    query: str = "",
+) -> ListResult | None:
+    state = ListState(
+        choices,
+        multi=multi,
+        default=default,
+        selected=selected,
+        filter=filter,
+        query=query,
+    )
     hints = [strings.tr("tui_hint_select")]
     if multi:
         hints.append(strings.tr("tui_hint_multi"))
+    if extra_keys:
+        hints.append("  ".join(f"{key_label(k.key)} {k.label}" for k in extra_keys))
     footer_frags = markup(footer) if footer else []
     reserve = 2 + min(state.rows, 3) + len(hints) + len(_lines(footer_frags))
     title_frags = fit_title(markup(title), reserve)
 
     buffer = Buffer(
-        multiline=False, on_text_changed=lambda buf: state.refilter(buf.text)
+        document=Document(query, len(query)),
+        multiline=False,
+        on_text_changed=lambda buf: state.refilter(buf.text),
     )
     query_window = Window(BufferControl(buffer=buffer), height=1)
     body: list[AnyContainer] = []
@@ -613,22 +707,31 @@ def run_list(
 
     @bind(kb, "home")
     def _home(event: KeyPressEvent) -> None:
-        state.move_to(0)
+        state.move_to(0, 1)
 
     @bind(kb, "end")
     def _end(event: KeyPressEvent) -> None:
-        state.move_to(len(state.visible) - 1)
+        state.move_to(len(state.visible) - 1, -1)
+
+    def chosen() -> list[int] | None:
+        if multi:
+            return state.multi_result()
+        index = state.current()
+        return None if index is None else [index]
 
     @bind(kb, "enter")
     def _enter(event: KeyPressEvent) -> None:
-        if multi:
-            result = state.multi_result()
-            if result is not None:
-                event.app.exit(result=result)
-        else:
-            index = state.current()
-            if index is not None:
-                event.app.exit(result=index)
+        rows = chosen()
+        if rows is not None:
+            event.app.exit(result=ListResult(tuple(rows), None, buffer.text))
+
+    for extra in extra_keys:
+
+        def _extra(event: KeyPressEvent, extra: ExtraKey = extra) -> None:
+            rows = chosen() or []
+            event.app.exit(result=ListResult(tuple(rows), extra.name, buffer.text))
+
+        bind(kb, extra.key)(_extra)
 
     if multi:
 
@@ -650,17 +753,45 @@ def run_list(
         def _clear(event: KeyPressEvent) -> None:
             state.clear()
 
-    app: Application[int | list[int] | None] = make_app(HSplit(body), query_window, kb)
+    app: Application[ListResult | None] = make_app(HSplit(body), query_window, kb)
     result = run(app)
-    print_summary(title_frags, _list_summary(state, result))
+    if result is None:
+        print_summary(title_frags, None)
+    elif result.key is None:
+        print_summary(title_frags, _list_summary(state, result.indexes))
     return result
+
+
+def pick(
+    title: str,
+    choices: Sequence[Choice],
+    *,
+    multi: bool,
+    default: int,
+    selected: Iterable[int],
+    footer: str | None,
+    filter: ListFilter | None,
+    extra_keys: Sequence[ExtraKey],
+    query: str,
+) -> ListResult | None:
+    return run_list(
+        title,
+        choices,
+        multi=multi,
+        default=default,
+        selected=selected,
+        footer=footer,
+        filter=filter,
+        extra_keys=extra_keys,
+        query=query,
+    )
 
 
 def select(
     title: str, choices: Sequence[Choice], *, default: int, footer: str | None
 ) -> int | None:
     result = run_list(title, choices, multi=False, default=default, footer=footer)
-    return result if isinstance(result, int) else None
+    return result.indexes[0] if result is not None and result.indexes else None
 
 
 def multi_select(
@@ -671,7 +802,7 @@ def multi_select(
     footer: str | None,
 ) -> list[int] | None:
     result = run_list(title, choices, multi=True, selected=selected, footer=footer)
-    return result if isinstance(result, list) else None
+    return list(result.indexes) if result is not None else None
 
 
 # -- confirm ---------------------------------------------------------------------

@@ -16,7 +16,14 @@ from collections.abc import Callable, Iterable, Sequence
 from bcsfe import core
 from bcsfe.cli import color
 from bcsfe.cli.tui import classic, strings
-from bcsfe.cli.tui.base import Choice, TuiUnavailable, is_interactive
+from bcsfe.cli.tui.base import (
+    Choice,
+    ExtraKey,
+    ListFilter,
+    ListResult,
+    TuiUnavailable,
+    is_interactive,
+)
 
 _notice_shown = False
 
@@ -105,6 +112,64 @@ def multi_select(
             _failed(e)
     _unavailable(fallback)
     return classic.multi_select(title, items, footer)
+
+
+def pick(
+    title: str,
+    choices: Sequence[Choice | str],
+    *,
+    multi: bool = False,
+    default: int = 0,
+    selected: Iterable[int] = (),
+    footer: str | None = None,
+    filter: ListFilter | None = None,
+    extra_keys: Sequence[ExtraKey] = (),
+    query: str = "",
+    fallback: bool = True,
+) -> ListResult | None:
+    """:func:`select` / :func:`multi_select` with more control, for screens
+    built on a list (the home menu, the cat picker).
+
+    - ``choices`` may contain heading rows (``Choice(heading=True)``): shown
+      while the query is empty, never highlighted or returned.
+    - ``filter`` replaces the default matching: it gets the query and returns
+      the indexes to show, in order (headings only if it returns them).
+    - ``extra_keys`` end the list early; the result tells which one.
+    - ``query`` is the initial text of the query field.
+
+    Returns None when cancelled or when there is no selectable row.  Without
+    an interactive terminal the classic numbered prompt is used: headings are
+    printed without a number, ``filter``, ``extra_keys`` and ``query`` are
+    ignored."""
+    items = _choices(choices)
+    if not any(not c.heading for c in items):
+        return None
+    if is_interactive():
+        try:
+            from bcsfe.cli.tui import _apps
+
+            return _apps.pick(
+                title,
+                items,
+                multi=multi,
+                default=default,
+                selected=selected,
+                footer=footer,
+                filter=filter,
+                extra_keys=extra_keys,
+                query=query,
+            )
+        except EOFError:
+            raise
+        except Exception as e:
+            _failed(e)
+    _unavailable(fallback)
+    if multi:
+        indexes = classic.multi_select(title, items, footer)
+    else:
+        index = classic.select(title, items, footer)
+        indexes = None if index is None else [index]
+    return None if indexes is None else ListResult(tuple(indexes))
 
 
 def confirm(

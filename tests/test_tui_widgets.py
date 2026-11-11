@@ -412,3 +412,131 @@ def test_tr_falls_back_to_english_when_key_is_missing(
     assert strings.tr("tui_counter", shown=3, total=10) == "3 / 10"
     assert strings.tr("tui_range", min="<0>", max=5) == r"range \<0\> - 5"
     assert strings.tr("no_such_key") == "no_such_key"
+
+
+# -- pick: headings, custom filter, extra keys, initial query -------------------------
+
+CTRL_O = "\x0f"
+
+SECTIONS = [
+    Choice("■ A", heading=True),
+    Choice("a1"),
+    Choice("a2"),
+    Choice("■ B", heading=True),
+    Choice("b1", "beta"),
+]
+MORE = tui.ExtraKey("more", "c-o", "その他")
+
+
+def pick(*keys: str, multi: bool = False, **options: object) -> tui.ListResult | None:
+    values: dict[str, object] = {
+        "multi": multi,
+        "default": 0,
+        "selected": (),
+        "footer": None,
+        "filter": None,
+        "extra_keys": (),
+        "query": "",
+    }
+    values.update(options)
+    return drive(lambda: _apps.pick("title", SECTIONS, **values), *keys)  # pyright: ignore
+
+
+def picked(*keys: str, **options: object) -> tuple[int, ...] | None:
+    result = pick(*keys, **options)
+    return None if result is None else result.indexes
+
+
+def test_pick_cursor_skips_headings() -> None:
+    assert picked(ENTER) == (1,)  # starts on the first row that is not a heading
+    assert picked(DOWN, DOWN, ENTER) == (4,)
+    assert picked(END, UP, ENTER) == (2,)
+    assert picked(END, HOME, ENTER) == (1,)
+    assert picked(UP, UP, ENTER) == (1,)
+    assert picked(PAGE_DOWN, ENTER) == (4,)
+    assert picked(ENTER, default=0) == (1,)
+    assert picked(ENTER, default=4) == (4,)
+
+
+def test_pick_query_hides_headings_and_counter_ignores_them() -> None:
+    assert picked("beta", ENTER) == (4,)
+    state = _apps.ListState(SECTIONS, multi=False)
+    assert state.visible == [0, 1, 2, 3, 4]
+    assert "".join(text for _, text, *_ in state.counter()).strip() == "3 / 3"
+    state.refilter("a")  # a1, a2 and b1 (keyword "beta"), never the headings
+    assert state.visible == [1, 2, 4]
+    state.refilter("a1")
+    assert state.visible == [1]
+    assert "".join(text for _, text, *_ in state.counter()).strip() == "1 / 3"
+
+
+def test_pick_multi_never_checks_headings() -> None:
+    assert picked(CTRL_A, ENTER, multi=True) == (1, 2, 4)
+    assert picked(ENTER, multi=True, selected=(0, 3, 4)) == (4,)
+
+
+def test_pick_custom_filter_controls_rows_and_order() -> None:
+    def only_x(query: str) -> list[int]:
+        return [4, 99, 1, 4] if query == "x" else list(range(len(SECTIONS)))
+
+    assert picked("x", ENTER, filter=only_x) == (4,)
+    assert picked("x", DOWN, ENTER, filter=only_x) == (1,)
+    assert picked("x", DOWN, DOWN, ENTER, filter=only_x) == (
+        1,
+    )  # 99 and the repeat are dropped
+    assert picked(DOWN, DOWN, ENTER, filter=only_x) == (
+        4,
+    )  # headings it returns stay unselectable
+
+
+def test_pick_extra_key_reports_rows_and_query() -> None:
+    result = pick(DOWN, CTRL_O, extra_keys=(MORE,))
+    assert result == tui.ListResult((2,), "more", "")
+    result = pick("beta", CTRL_O, extra_keys=(MORE,))
+    assert result == tui.ListResult((4,), "more", "beta")
+    result = pick(TAB, CTRL_O, multi=True, extra_keys=(MORE,))
+    assert result == tui.ListResult((1,), "more", "")
+    result = pick("zzz", CTRL_O, extra_keys=(MORE,))
+    assert result == tui.ListResult((), "more", "zzz")
+    assert pick(CTRL_O, ESC) is None  # without extra_keys Ctrl-O does nothing
+
+
+def test_pick_initial_query() -> None:
+    assert picked(ENTER, query="beta") == (4,)
+    result = pick(ENTER, query="a")
+    assert result == tui.ListResult((1,), None, "a")
+
+
+def test_key_label() -> None:
+    assert _apps.key_label("c-o") == "Ctrl-O"
+    assert _apps.key_label("f2") == "F2"
+    assert _apps.key_label("tab") == "Tab"
+
+
+def test_pick_without_selectable_rows_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(widgets, "is_interactive", lambda: True)
+    assert tui.pick("t", [Choice("■", heading=True)]) is None
+    assert tui.pick("t", []) is None
+
+
+def test_pick_classic_numbers_only_selectable_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(widgets, "is_interactive", lambda: False)
+    printed: list[str] = []
+    answers = iter(["3", "1-2 4"])
+    monkeypatch.setattr(classic.color, "color_print", printed.append)
+    monkeypatch.setattr(classic.color, "color_input", lambda _: next(answers))
+    assert tui.pick("t", SECTIONS) == tui.ListResult((4,))
+    shown = printed[0].splitlines()
+    assert shown == [
+        "<@q>■ A</>",
+        " 1. <@t>a1</>",
+        " 2. <@t>a2</>",
+        "<@q>■ B</>",
+        " 3. <@t>b1</>",
+    ]
+    # multi: "4" is the trailing "all" entry
+    assert tui.pick("t", SECTIONS, multi=True) == tui.ListResult((1, 2, 4))

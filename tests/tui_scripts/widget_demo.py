@@ -4,6 +4,7 @@
         [--sandbox DIR] [--rows N]
 
 WIDGET is one of: select, multi, confirm, text, integer, big (2000 rows),
+sections (pick with headings and an extra key),
 range (dialog_creator.range_multi_input_raw), all (each widget in turn).
 After each widget the script prints ``RESULT: <repr>``.  The editor's data,
 config and XDG folders are redirected into the sandbox (a new temporary
@@ -92,6 +93,16 @@ def run(widget: str) -> None:
     elif widget == "big":
         big = [tui.Choice(f"アイテム {i:04d}", f"item {i}") for i in range(2000)]
         result = tui.select("2000 件から選択:", big)
+    elif widget == "sections":
+        rows: list[tui.Choice] = []
+        for group, start, end in (("アイテム", 0, 6), ("その他", 6, len(choices))):
+            rows.append(tui.Choice(f"■ {group}", heading=True))
+            rows += choices[start:end]
+        result = tui.pick(
+            "<@t>機能</>を選んでください:",
+            rows,
+            extra_keys=[tui.ExtraKey("more", "c-o", "その他の選び方")],
+        )
     elif widget == "range":
         result = dialog_creator.range_multi_input_raw(
             "ステージ番号 (例: 1 2 5-8):", dialog_creator.MaxValue.always_cap(48), 1

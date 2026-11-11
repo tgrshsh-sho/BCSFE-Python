@@ -29,18 +29,30 @@ def _invalid(minimum: int, maximum: int) -> None:
     )
 
 
+def _numbered(choices: Sequence[Choice]) -> list[int]:
+    """Indexes of the rows that get a number (headings do not)."""
+    return [i for i, choice in enumerate(choices) if not choice.heading]
+
+
 def _print_choices(choices: Sequence[Choice], extra: Sequence[str] = ()) -> None:
     lines: list[str] = []
-    for i, choice in enumerate(choices):
+    number = 0
+    for choice in choices:
+        if choice.heading:
+            lines.append(f"<@q>{choice.label}</>")
+            continue
+        number += 1
         hint = f"  <@s>{choice.hint}</>" if choice.hint else ""
-        lines.append(f" {i + 1}. <@t>{choice.label}</>{hint}")
-    for j, label in enumerate(extra, start=len(choices)):
-        lines.append(f" {j + 1}. <@t>{label}</>")
+        lines.append(f" {number}. <@t>{choice.label}</>{hint}")
+    for label in extra:
+        number += 1
+        lines.append(f" {number}. <@t>{label}</>")
     color.color_print("\n".join(lines))
 
 
 def select(title: str, choices: Sequence[Choice], footer: str | None) -> int | None:
     quit_key = _quit_key()
+    numbered = _numbered(choices)
     while True:
         _print_choices(choices)
         if footer:
@@ -50,15 +62,16 @@ def select(title: str, choices: Sequence[Choice], footer: str | None) -> int | N
             return None
         text = inp.strip()
         if text.isdigit():
-            index = int(text) - 1
-            if 0 <= index < len(choices):
-                return index
+            number = int(text) - 1
+            if 0 <= number < len(numbered):
+                return numbered[number]
         else:
             wanted = text.lower()
-            for i, choice in enumerate(choices):
-                if matching.strip_markup(choice.label).strip().lower() == wanted:
+            for i in numbered:
+                label = matching.strip_markup(choices[i].label).strip().lower()
+                if label == wanted:
                     return i
-        _invalid(1, len(choices))
+        _invalid(1, len(numbered))
 
 
 def multi_select(
@@ -66,7 +79,8 @@ def multi_select(
 ) -> list[int] | None:
     quit_key = _quit_key()
     all_label = strings.localize_or("all", "All")
-    total = len(choices)
+    numbered = _numbered(choices)
+    total = len(numbered)
     while True:
         _print_choices(choices, [all_label])
         if footer:
@@ -92,7 +106,7 @@ def multi_select(
                 ok = False
                 break
         if ok:
-            return sorted(picked)
+            return sorted(numbered[n] for n in picked)
         _invalid(1, total + 1)
 
 
