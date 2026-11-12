@@ -796,9 +796,16 @@ def pick(
 
 
 def select(
-    title: str, choices: Sequence[Choice], *, default: int, footer: str | None
+    title: str,
+    choices: Sequence[Choice],
+    *,
+    default: int,
+    footer: str | None,
+    hint: str | None = None,
 ) -> int | None:
-    result = run_list(title, choices, multi=False, default=default, footer=footer)
+    result = run_list(
+        title, choices, multi=False, default=default, footer=footer, hint=hint
+    )
     return result.indexes[0] if result is not None and result.indexes else None
 
 

@@ -58,6 +58,7 @@ def select(
     *,
     default: int = 0,
     footer: str | None = None,
+    hint: str | None = None,
     fallback: bool = True,
 ) -> int | None:
     """Pick one entry; returns its index (into ``choices``) or None.
@@ -65,8 +66,9 @@ def select(
     fzf-style: typing filters the list (see :class:`~.matching.Matcher`),
     ↑/↓ Ctrl-P/Ctrl-N PageUp/PageDown Home/End move, Enter chooses, Esc
     cancels.  ``default`` is the initially highlighted index, ``footer`` an
-    optional extra line (markup) shown under the list.  Returns None at once
-    when ``choices`` is empty."""
+    optional extra line (markup) shown under the list, ``hint`` replaces the
+    key-hint line (e.g. when Esc means "exit"; the classic prompt has none).
+    Returns None at once when ``choices`` is empty."""
     items = _choices(choices)
     if not items:
         return None
@@ -74,7 +76,7 @@ def select(
         try:
             from bcsfe.cli.tui import _apps
 
-            return _apps.select(title, items, default=default, footer=footer)
+            return _apps.select(title, items, default=default, footer=footer, hint=hint)
         except EOFError:
             raise
         except Exception as e:

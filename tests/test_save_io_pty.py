@@ -122,6 +122,21 @@ def test_start_menu_offers_the_last_save(
     assert str(path) in flat
 
 
+def test_start_menu_esc_leaves_the_editor(
+    terminal: StartTerminal, editor_sandbox: Sandbox
+) -> None:
+    editor_sandbox.write_config(locale="ja")
+    term = terminal(start_menu_command(editor_sandbox), env=env_of(editor_sandbox))
+    term.wait_for(LIST_HINT, STARTUP)
+    term.wait_idle(0.3)
+    screen = term.screen_text()
+    # the first screen: Esc does not "go back" (it used to redraw the menu)
+    assert "Esc 終了" in screen and "Esc 戻る" not in screen
+    term.send_key("esc")
+    assert term.wait_exit(30) == 0
+    assert "ご利用いただきありがとうございました" in "\n".join(term.history_lines())
+
+
 # -- the editor on the fixture save -------------------------------------------------
 
 

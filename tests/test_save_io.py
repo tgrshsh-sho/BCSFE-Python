@@ -406,17 +406,18 @@ def test_classic_download_normalizes_and_numbers_the_regions(
 
 @pytest.fixture
 def menu(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Labels of each start menu shown (the menu itself returns "cancelled")."""
+    """Labels of each start menu shown (the menu itself answers like an entry
+    that loaded nothing; cancelling it is tested separately)."""
     shown: list[list[str]] = []
 
     def capture(
         actions: dialog_creator.Actions[Any], dialog_key: str, *a: Any, **k: Any
-    ) -> None:
+    ) -> tuple[None, None]:
         assert dialog_key == "save_load_option"
         shown.append(
             [plain(color.colorize(o)) for act in actions.actions for o in act.options]
         )
-        return None
+        return None, None
 
     monkeypatch.setattr(dialog_creator, "single_select_key", capture)
     return shown
@@ -485,6 +486,67 @@ def test_classic_start_menu_keeps_upstream_order(
         "adb でデバイスからセーブデータを取得",
         *STARTING_CLASSIC,
     ]
+
+
+@pytest.mark.parametrize("key", [ESC, CTRL_C])
+def test_cancelling_the_start_menu_leaves_the_editor(
+    io_env: Path, interactive: None, capsys: pytest.CaptureFixture[str], key: str
+) -> None:
+    # the first screen: there is nothing to go back to
+    with pytest.raises(SystemExit):
+        drive(lambda: save_management.SaveManagement.select_save(True), key)
+    assert text_of("leave").strip() in plain(capsys.readouterr().out)
+
+
+def test_start_menu_says_that_esc_exits(
+    io_env: Path, interactive: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hints: list[str | None] = []
+
+    def capture(
+        actions: dialog_creator.Actions[Any], dialog_key: str, *a: Any, **k: Any
+    ) -> tuple[None, None]:
+        hints.append(k.get("hint"))
+        return None, None
+
+    monkeypatch.setattr(dialog_creator, "single_select_key", capture)
+    save_management.SaveManagement.select_save(True)
+    save_management.SaveManagement.select_save(False)  # the "load save" feature
+    assert hints == [text_of("home_hint"), None]
+    assert "Esc 終了" in text_of("home_hint")
+
+
+def test_start_menu_entry_that_loads_nothing_shows_the_menu_again(
+    io_env: Path, interactive: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "about" prints its text and returns None, like a cancelled download or
+    # the config: that is not "cancelled the menu"
+    select_save = save_management.SaveManagement.select_save
+    assert drive(lambda: select_save(True), "このエディターについて", ENTER) == (
+        None,
+        False,
+    )
+    assert text_of("leave").strip() not in plain(capsys.readouterr().out)
+
+
+def test_cancelling_the_load_save_menu_goes_back(
+    io_env: Path, interactive: None
+) -> None:
+    # the "load save" feature of the home: Esc returns to the home
+    assert drive(lambda: save_management.SaveManagement.select_save(False), ESC) == (
+        None,
+        False,
+    )
+
+
+def test_classic_start_menu_quit_key_shows_the_menu_again(
+    io_env: Path, classic: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def quit_key(prompt: str) -> str:
+        return "q"
+
+    monkeypatch.setattr(color, "color_input", quit_key)
+    assert save_management.SaveManagement.select_save(True) == (None, False)
 
 
 def test_describe_save_reads_only_the_header(io_env: Path) -> None:

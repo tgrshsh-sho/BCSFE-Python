@@ -381,9 +381,12 @@ def multi_select_entries_raw(
             return ids
 
 
-def single_select_raw(actions: Actions[T], dialog: str, default: int = 0) -> T | None:
+def single_select_raw(
+    actions: Actions[T], dialog: str, default: int = 0, hint: str | None = None
+) -> T | None:
     """``default`` is the option highlighted first by the interactive prompt
-    (the classic numbered prompt ignores it)."""
+    and ``hint`` replaces its key-hint line (the classic numbered prompt
+    ignores both)."""
     if actions.max() == 0:
         return None
     if actions.len() == 1 and actions.actions[0].len() == 1:
@@ -391,7 +394,9 @@ def single_select_raw(actions: Actions[T], dialog: str, default: int = 0) -> T |
     if tui.is_interactive():
         labels = [opt for act in actions.actions for opt in act.options]
         try:
-            index = tui.select(dialog, labels, default=default, fallback=False)
+            index = tui.select(
+                dialog, labels, default=default, hint=hint, fallback=False
+            )
         except tui.TuiUnavailable:
             pass
         else:
@@ -440,10 +445,11 @@ def single_select_key(
     escape: bool = True,
     *,
     default: int = 0,
+    hint: str | None = None,
     **kwargs: Any,
 ) -> T | None:
     return single_select_raw(
-        actions, core.localize(dialog_key, escape, **kwargs), default
+        actions, core.localize(dialog_key, escape, **kwargs), default, hint
     )
 
 

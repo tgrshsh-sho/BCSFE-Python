@@ -2,12 +2,20 @@ from __future__ import annotations
 import datetime
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Optional
 from bcsfe import core
 import bcsfe
 from bcsfe.core import io
-from bcsfe.cli import main, color, dialog_creator, server_cli, tui, clipboard
+from bcsfe.cli import (
+    main,
+    color,
+    dialog_creator,
+    home_text,
+    server_cli,
+    tui,
+    clipboard,
+)
 from bcsfe.cli.tui import matching
 from bcsfe.core.country_code import CountryCode
 
@@ -482,11 +490,23 @@ class SaveManagement:
                 "exit", lambda _: main.Main.exit_editor(check_temp=False)
             )
 
+        # Most entries return None (a cancelled download, the config, ...), so
+        # None alone does not tell them from a cancelled menu.
+        chosen: list[bool] = []
+        for action in actions.actions:
+            action.func = SaveManagement.noting(action.func, chosen)
+
+        # The start menu is the first screen: Esc / Ctrl-C leave the editor
+        # (there is nothing to go back to), and the key hint says so.
+        leaves = starting_options and tui.is_interactive()
         res = dialog_creator.single_select_key(
             actions,
             "save_load_option",
+            hint=home_text.tr("home_hint") if leaves else None,
         )
         if res is None:
+            if leaves and not chosen:
+                main.Main.leave()
             return None, False
 
         save_data, _ = res
@@ -495,6 +515,19 @@ class SaveManagement:
             save_data,
             False,
         )
+
+    @staticmethod
+    def noting(
+        func: Callable[[int], Optional[tuple[core.SaveFile, core.Path]]],
+        chosen: list[bool],
+    ) -> Callable[[int], Optional[tuple[core.SaveFile, core.Path]]]:
+        """``func`` of a menu entry, recording in ``chosen`` that it ran."""
+
+        def run(index: int) -> Optional[tuple[core.SaveFile, core.Path]]:
+            chosen.append(True)
+            return func(index)
+
+        return run
 
     @staticmethod
     def last_save_label(path: core.Path) -> str:
