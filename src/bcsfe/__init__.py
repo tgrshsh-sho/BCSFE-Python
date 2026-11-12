@@ -4,7 +4,7 @@ from __future__ import annotations
 # editor_version field of exported saves rely on it.
 __version__ = "3.6.0"
 # Revision of the jp fork on top of __version__; bump it for every fork release.
-__fork__ = "jp.1"
+__fork__ = "jp.2"
 
 __app_name__ = "bcsfe"
 

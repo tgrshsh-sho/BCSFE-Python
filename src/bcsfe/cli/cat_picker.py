@@ -72,8 +72,9 @@ FALLBACK: dict[str, str] = {
         "Enter the level for <@t>{count}</> cats (max <@t>{max_base}+{max_plus}</>):"
     ),
     "cats_upgrade_hint": (
-        "e.g. <@t>50+30</> / <@t>max+max</> / <@t>50+</> (keep the plus level)"
-        " / <@t>5-10+20-30</> (random in the range)"
+        "e.g. <@t>50+30</> / <@t>max+max</> / <@t>5-10+20-30</>"
+        " (random in the range)\n"
+        "<@t>50+</> keeps the plus level, <@t>50</> alone sets the plus level to 0"
     ),
     "cats_storage_select": "Select the items to remove:",
 }

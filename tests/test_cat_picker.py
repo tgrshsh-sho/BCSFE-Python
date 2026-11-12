@@ -20,6 +20,7 @@ from bcsfe.cli.cat_picker import CatFilter, make_info
 from bcsfe.cli.edits import cat_editor, storage
 from bcsfe.cli.tui import matching
 from tests.conftest import REPO, Sandbox
+from tests.test_locale_ja import parse_entries
 
 LOCALES = REPO / "src" / "bcsfe" / "files" / "locales"
 RARITY_NAMES = ["基本キャラ", "EX", "レア", "激レア", "超激レア", "伝説レア"]
@@ -27,13 +28,9 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def read_properties(path: Path) -> dict[str, str]:
-    """One-line ``key=value`` entries (all the fork's cats keys are one line)."""
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line and not line.startswith(("#", ">")) and "=" in line:
-            key, _, value = line.partition("=")
-            values[key] = value
-    return values
+    """The entries of a .properties file (multi-line values joined by ``\\n``)."""
+    entries = parse_entries(path.read_text(encoding="utf-8"))
+    return {entry.key: entry.value for entry in entries}
 
 
 def fake_tr(locale: str) -> Any:

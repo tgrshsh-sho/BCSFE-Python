@@ -273,10 +273,9 @@ def test_upgrade_level_input(terminal: StartTerminal, editor_sandbox: Sandbox) -
 
     term.wait_for("体のレベルを入力してください")
     screen = term.screen_text()
-    assert (
-        "例: 50+30 / max+max / 50+ (+レベルはそのまま) / 5-10+20-30 (範囲でランダム)"
-        in screen
-    )
+    assert "例: 50+30 / max+max / 5-10+20-30 (範囲でランダム)" in screen
+    # a bare level resets the plus level (upstream's rule): the hint says so
+    assert "50+ は +レベルをそのまま、50 だけだと +レベルは 0 になります" in screen
     assert re.search(r"3 体のレベルを入力してください \(最大 \d+\+\d+\):", screen)
     assert "レベルを入力してください。例:" not in screen  # no 10-line help
     term.send_text("abc")
