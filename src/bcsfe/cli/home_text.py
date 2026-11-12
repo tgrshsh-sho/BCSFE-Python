@@ -24,6 +24,7 @@ FALLBACK: dict[str, str] = {
     "home_about": "About this editor",
     "home_prompt": "Select a feature:",
     "home_hint": "↑↓ Move  Enter Open  Esc Exit  Type to filter",
+    "home_hint_query": "↑↓ Move  Enter Open  Esc Clear  Type to filter",
     "home_summary_save": (
         "<@t>{cc}</> {gv}  Inquiry code <@t>{inquiry_code}</>"
         "  Cats <@t>{cats}</> / {cats_total}"

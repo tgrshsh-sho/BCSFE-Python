@@ -8,8 +8,10 @@ loaded (interactive terminals only; the classic numbered menu in
   order; nested categories are flattened into their top-level category.
 - While the query is empty, a "frequently used" section comes first (see
   :mod:`bcsfe.cli.home_usage`); with a query every feature is listed once.
+  The section keeps its order until the editor is started again.
 - Enter runs the feature like the classic menu does; Esc / Ctrl-C start the
-  exit flow, and cancelling it comes back here.
+  exit flow, and cancelling it comes back here.  Esc first clears a typed
+  query.
 """
 
 from __future__ import annotations
@@ -309,11 +311,15 @@ class Home:
     ) -> None:
         self.handler = handler
         self.usage = usage if usage is not None else home_usage.Usage.load()
+        # The "frequently used" rows keep their order while the editor runs,
+        # so that the same keys open the same feature; what is used now
+        # counts from the next start.
+        self.ranking = self.usage.snapshot()
 
     def menu(self) -> Menu:
         categories = collect(self.handler.get_features())
         names = {f.name for c in categories for f in c.features if counted(f)}
-        return build_menu(categories, self.usage.favourites(names))
+        return build_menu(categories, self.ranking.favourites(names))
 
     def run(self) -> None:
         """Show the home until the editor exits.  Returns when the prompts are
@@ -328,6 +334,7 @@ class Home:
                     menu.choices,
                     filter=menu.filter,
                     hint=home_text.tr("home_hint"),
+                    clear_hint=home_text.tr("home_hint_query"),
                     fallback=False,
                 )
             except tui.TuiUnavailable:

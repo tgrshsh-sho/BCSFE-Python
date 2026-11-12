@@ -61,6 +61,7 @@ from bcsfe.cli.tui.base import Choice, ExtraKey, ListFilter, ListResult
 
 R = TypeVar("R")
 Handler = Callable[[KeyPressEvent], None]
+HintText = str | Callable[[], str]
 
 MAX_ROWS = 15
 ESC_TIMEOUT = 0.05  # seconds to wait after ESC before treating it as the Esc key
@@ -346,13 +347,16 @@ def run(app: Application[R]) -> R:
     return app.run()
 
 
-def hint_windows(texts: Iterable[str]) -> list[AnyContainer]:
+def hint_windows(texts: Iterable[HintText]) -> list[AnyContainer]:
+    """One dimmed line per text; a callable is read again at every redraw."""
+
+    def control(text: HintText) -> FormattedTextControl:
+        if callable(text):
+            return FormattedTextControl(lambda: [("class:hint", "  " + plain(text()))])
+        return FormattedTextControl([("class:hint", "  " + plain(text))])
+
     return [
-        Window(
-            FormattedTextControl([("class:hint", "  " + plain(text))]),
-            wrap_lines=True,
-            dont_extend_height=True,
-        )
+        Window(control(text), wrap_lines=True, dont_extend_height=True)
         for text in texts
     ]
 
@@ -631,6 +635,7 @@ def run_list(
     extra_keys: Sequence[ExtraKey] = (),
     query: str = "",
     hint: str | None = None,
+    clear_hint: str | None = None,
 ) -> ListResult | None:
     state = ListState(
         choices,
@@ -640,7 +645,21 @@ def run_list(
         filter=filter,
         query=query,
     )
-    hints = [hint if hint is not None else strings.tr("tui_hint_select")]
+    buffer = Buffer(
+        document=Document(query, len(query)),
+        multiline=False,
+        on_text_changed=lambda buf: state.refilter(buf.text),
+    )
+    key_hint = hint if hint is not None else strings.tr("tui_hint_select")
+
+    def typed() -> bool:
+        return bool(buffer.text.strip())
+
+    def first_hint() -> str:
+        # with clear_hint, Esc clears a typed query before it cancels
+        return clear_hint if clear_hint is not None and typed() else key_hint
+
+    hints: list[HintText] = [first_hint]
     if multi:
         hints.append(strings.tr("tui_hint_multi"))
     if extra_keys:
@@ -649,11 +668,6 @@ def run_list(
     reserve = 2 + min(state.rows, 3) + len(hints) + len(_lines(footer_frags))
     title_frags = fit_title(markup(title), reserve)
 
-    buffer = Buffer(
-        document=Document(query, len(query)),
-        multiline=False,
-        on_text_changed=lambda buf: state.refilter(buf.text),
-    )
     query_window = Window(BufferControl(buffer=buffer), height=1)
     body: list[AnyContainer] = []
     if title_frags:
@@ -689,6 +703,16 @@ def run_list(
     body += hint_windows(hints)
 
     kb = base_bindings(buffer)
+
+    if clear_hint is not None:
+        # Added after the base bindings, so it is the one that runs for Esc.
+        # Ctrl-C keeps cancelling at once.
+        @bind(kb, "escape")
+        def _escape(event: KeyPressEvent) -> None:
+            if typed():
+                buffer.text = ""  # -> on_text_changed: the whole list again
+            else:
+                event.app.exit(result=None)
 
     @bind(kb, "up", "c-p")
     def _up(event: KeyPressEvent) -> None:
@@ -780,6 +804,7 @@ def pick(
     extra_keys: Sequence[ExtraKey],
     query: str,
     hint: str | None = None,
+    clear_hint: str | None = None,
 ) -> ListResult | None:
     return run_list(
         title,
@@ -792,6 +817,7 @@ def pick(
         extra_keys=extra_keys,
         query=query,
         hint=hint,
+        clear_hint=clear_hint,
     )
 
 
@@ -802,9 +828,16 @@ def select(
     default: int,
     footer: str | None,
     hint: str | None = None,
+    clear_hint: str | None = None,
 ) -> int | None:
     result = run_list(
-        title, choices, multi=False, default=default, footer=footer, hint=hint
+        title,
+        choices,
+        multi=False,
+        default=default,
+        footer=footer,
+        hint=hint,
+        clear_hint=clear_hint,
     )
     return result.indexes[0] if result is not None and result.indexes else None
 

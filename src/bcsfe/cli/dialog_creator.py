@@ -382,11 +382,16 @@ def multi_select_entries_raw(
 
 
 def single_select_raw(
-    actions: Actions[T], dialog: str, default: int = 0, hint: str | None = None
+    actions: Actions[T],
+    dialog: str,
+    default: int = 0,
+    hint: str | None = None,
+    clear_hint: str | None = None,
 ) -> T | None:
-    """``default`` is the option highlighted first by the interactive prompt
-    and ``hint`` replaces its key-hint line (the classic numbered prompt
-    ignores both)."""
+    """``default`` is the option highlighted first by the interactive prompt,
+    ``hint`` replaces its key-hint line and ``clear_hint`` makes Esc clear a
+    typed query first (see :func:`bcsfe.cli.tui.pick`); the classic numbered
+    prompt ignores all three."""
     if actions.max() == 0:
         return None
     if actions.len() == 1 and actions.actions[0].len() == 1:
@@ -395,7 +400,12 @@ def single_select_raw(
         labels = [opt for act in actions.actions for opt in act.options]
         try:
             index = tui.select(
-                dialog, labels, default=default, hint=hint, fallback=False
+                dialog,
+                labels,
+                default=default,
+                hint=hint,
+                clear_hint=clear_hint,
+                fallback=False,
             )
         except tui.TuiUnavailable:
             pass
@@ -446,10 +456,11 @@ def single_select_key(
     *,
     default: int = 0,
     hint: str | None = None,
+    clear_hint: str | None = None,
     **kwargs: Any,
 ) -> T | None:
     return single_select_raw(
-        actions, core.localize(dialog_key, escape, **kwargs), default, hint
+        actions, core.localize(dialog_key, escape, **kwargs), default, hint, clear_hint
     )
 
 

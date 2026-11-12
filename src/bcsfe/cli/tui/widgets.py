@@ -59,6 +59,7 @@ def select(
     default: int = 0,
     footer: str | None = None,
     hint: str | None = None,
+    clear_hint: str | None = None,
     fallback: bool = True,
 ) -> int | None:
     """Pick one entry; returns its index (into ``choices``) or None.
@@ -67,7 +68,8 @@ def select(
     ↑/↓ Ctrl-P/Ctrl-N PageUp/PageDown Home/End move, Enter chooses, Esc
     cancels.  ``default`` is the initially highlighted index, ``footer`` an
     optional extra line (markup) shown under the list, ``hint`` replaces the
-    key-hint line (e.g. when Esc means "exit"; the classic prompt has none).
+    key-hint line (e.g. when Esc means "exit"; the classic prompt has none)
+    and ``clear_hint`` makes Esc clear a typed query first (see :func:`pick`).
     Returns None at once when ``choices`` is empty."""
     items = _choices(choices)
     if not items:
@@ -76,7 +78,14 @@ def select(
         try:
             from bcsfe.cli.tui import _apps
 
-            return _apps.select(title, items, default=default, footer=footer, hint=hint)
+            return _apps.select(
+                title,
+                items,
+                default=default,
+                footer=footer,
+                hint=hint,
+                clear_hint=clear_hint,
+            )
         except EOFError:
             raise
         except Exception as e:
@@ -128,6 +137,7 @@ def pick(
     extra_keys: Sequence[ExtraKey] = (),
     query: str = "",
     hint: str | None = None,
+    clear_hint: str | None = None,
     fallback: bool = True,
 ) -> ListResult | None:
     """:func:`select` / :func:`multi_select` with more control, for screens
@@ -140,6 +150,9 @@ def pick(
     - ``extra_keys`` end the list early; the result tells which one.
     - ``query`` is the initial text of the query field.
     - ``hint`` replaces the first key-hint line (e.g. when Esc means "exit").
+    - ``clear_hint``, for screens where Esc leaves the editor: Esc clears a
+      typed query instead of cancelling (Esc again cancels, Ctrl-C always
+      does), and this line is shown in place of ``hint`` while there is one.
 
     Returns None when cancelled or when there is no selectable row.  Without
     an interactive terminal the classic numbered prompt is used: headings are
@@ -163,6 +176,7 @@ def pick(
                 extra_keys=extra_keys,
                 query=query,
                 hint=hint,
+                clear_hint=clear_hint,
             )
         except EOFError:
             raise

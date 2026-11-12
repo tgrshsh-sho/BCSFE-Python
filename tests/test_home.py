@@ -384,6 +384,23 @@ def test_usage_is_saved_and_loaded(
     assert loaded.entries["xp"].count == 2
 
 
+def test_snapshot_does_not_follow_later_use(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    usage = make_usage(tmp_path, monkeypatch)
+    usage.record("catfood")
+    before = usage.favourites(MORE)
+
+    snapshot = usage.snapshot()
+    usage.record("catseyes")
+    usage.record("catseyes")
+    usage.record("catfood")
+
+    assert snapshot.favourites(MORE) == before
+    assert snapshot.entries["catfood"].count == 1 and "catseyes" not in snapshot.entries
+    assert usage.favourites(MORE)[:2] == ["catfood", "catseyes"]
+
+
 def test_default_usage_file_is_in_the_data_folder(start_core: StartCore) -> None:
     root = start_core("ja")
 
@@ -477,18 +494,32 @@ def test_title_summarises_the_save(start_core: StartCore) -> None:
 # -------------------------------------------------------------------------- loop
 
 
+def first_section(choices: list[tui.Choice]) -> list[str]:
+    """Labels of the rows between the first heading and the next one."""
+    rows: list[str] = []
+    for choice in choices[1:]:
+        if choice.heading:
+            break
+        rows.append(matching.strip_markup(choice.label))
+    return rows
+
+
 class Recorder:
     """Scripted ``tui.pick`` answers and records of what the loop did."""
 
     def __init__(self, answers: list[str | None]) -> None:
         self.answers = answers  # a label to choose, or None for Esc
         self.titles: list[str] = []
+        self.favourites: list[list[str]] = []  # the first section of each home
+        self.options: list[dict[str, Any]] = []
         self.features: list[list[str]] = []
         self.exits: list[tuple[Any, bool]] = []
 
     def pick(self, title: str, choices: list[tui.Choice], **kwargs: Any) -> Any:
         assert kwargs["fallback"] is False
         self.titles.append(title)
+        self.favourites.append(first_section(choices))
+        self.options.append(kwargs)
         answer = self.answers.pop(0)
         if answer is None:
             return None
@@ -576,6 +607,46 @@ def test_exit_that_leaves_ends_the_loop(
 
     with pytest.raises(SystemExit):
         run_home(monkeypatch, [None, "XP"], exit_cancels=False)
+
+
+def test_favourites_keep_their_order_until_the_next_start(
+    start_core: StartCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = start_core("ja")
+
+    recorder, loop = run_home(monkeypatch, ["NP", "NP", "XP", "ネコカン"])
+
+    # the same keys reach the same row all session: nothing moves after a use
+    seeds = recorder.favourites[0]
+    assert seeds[0].startswith("セーブデータをサーバーにアップロード")
+    assert seeds[3:5] == ["XP", "NP"] and len(seeds) == 6
+    assert recorder.favourites == [seeds] * 4
+    assert first_section(loop.menu().choices) == seeds
+    # the uses were saved, and the next start ranks by them
+    usage = json.loads((root / "data" / "fork" / "usage.json").read_text("utf-8"))
+    assert {k: v["count"] for k, v in usage["features"].items()} == {
+        "np": 2,
+        "xp": 1,
+        "catfood": 1,
+    }
+    restarted = first_section(home.Home(loop.handler).menu().choices)
+    assert restarted[:3] == ["NP", "ネコカン", "XP"]
+    assert restarted[3].startswith("セーブデータをサーバーにアップロード")
+
+
+def test_esc_on_the_home_clears_a_typed_query_first(
+    start_core: StartCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start_core("ja")
+
+    recorder, _ = run_home(monkeypatch, ["XP"])
+
+    # the list widget does it when it gets both key-hint lines
+    options = recorder.options[0]
+    assert options["hint"] == home_text.tr("home_hint")
+    assert options["clear_hint"] == home_text.tr("home_hint_query")
+    assert "Esc 終了" in options["hint"] and "Esc 終了" not in options["clear_hint"]
+    assert "Esc 入力を消す" in options["clear_hint"]
 
 
 def test_about_is_not_counted(

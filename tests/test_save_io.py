@@ -501,19 +501,37 @@ def test_cancelling_the_start_menu_leaves_the_editor(
 def test_start_menu_says_that_esc_exits(
     io_env: Path, interactive: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    hints: list[str | None] = []
+    hints: list[tuple[str | None, str | None]] = []
 
     def capture(
         actions: dialog_creator.Actions[Any], dialog_key: str, *a: Any, **k: Any
     ) -> tuple[None, None]:
-        hints.append(k.get("hint"))
+        hints.append((k.get("hint"), k.get("clear_hint")))
         return None, None
 
     monkeypatch.setattr(dialog_creator, "single_select_key", capture)
     save_management.SaveManagement.select_save(True)
     save_management.SaveManagement.select_save(False)  # the "load save" feature
-    assert hints == [text_of("home_hint"), None]
+    assert hints == [(text_of("home_hint"), text_of("home_hint_query")), (None, None)]
     assert "Esc 終了" in text_of("home_hint")
+    assert "Esc 入力を消す" in text_of("home_hint_query")
+
+
+def test_start_menu_esc_clears_a_typed_query_first(
+    io_env: Path, interactive: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    select_save = save_management.SaveManagement.select_save
+    # Esc only clears "zzz": the menu is still open for the next query
+    keys = ("zzz", ESC, "このエディターについて", ENTER)
+    assert drive(lambda: select_save(True), *keys) == (None, False)
+    assert text_of("leave").strip() not in plain(capsys.readouterr().out)
+    with pytest.raises(SystemExit):  # Esc again leaves
+        drive(lambda: select_save(True), "zzz", ESC, ESC)
+    assert text_of("leave").strip() in plain(capsys.readouterr().out)
+    with pytest.raises(SystemExit):  # Ctrl-C leaves at once
+        drive(lambda: select_save(True), "zzz", CTRL_C)
+    # the "load save" feature of the home: Esc goes back at once
+    assert drive(lambda: select_save(False), "zzz", ESC) == (None, False)
 
 
 def test_start_menu_entry_that_loads_nothing_shows_the_menu_again(

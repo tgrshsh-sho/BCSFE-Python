@@ -136,8 +136,14 @@ def test_query_filters_and_enter_opens_the_xp_edit(
     assert screen[summary - 1] == ""
     log = history(term)
     assert f"✔ {PROMPT_JA} XP" in log  # what the list leaves in the scrollback
-    # the used feature is the first favourite at once
-    assert row_after(screen, HOME_JA).startswith("❯ XP")
+    # the favourites keep their order while the editor runs: XP moves up on
+    # the next start (see below), the same keys open the same feature now
+    assert row_after(screen, HOME_JA).startswith(
+        "❯ セーブデータをサーバーにアップロードして引継ぎコードと認証番号を取得"
+    )
+    assert row_after(screen, "❯ セーブデータをサーバーに").startswith(
+        "  キャラの入手 / 削除"
+    )
 
 
 def test_last_used_shows_first_on_the_next_start(
@@ -159,6 +165,48 @@ def test_last_used_shows_first_on_the_next_start(
         "  セーブデータをサーバーにアップロードして"
     )
     assert (editor_sandbox.data_dir / "fork" / "usage.json").is_file()
+
+
+def test_esc_clears_the_query_before_it_exits(
+    terminal: StartTerminal, editor_sandbox: Sandbox
+) -> None:
+    editor_sandbox.write_config(locale="ja")
+    term = start(terminal, editor_sandbox)
+    assert any("Esc 終了" in line for line in term.screen_lines())
+
+    term.send_text("xp")
+    term.wait_for("❯ XP", WAIT)
+    term.wait_for("Esc 入力を消す", WAIT)  # the key hint follows the query
+    term.wait_idle(0.3)
+    screen = term.screen_lines()
+    assert "> xp" in screen[screen.index(PROMPT_JA) + 1]
+    assert not any("Esc 終了" in line for line in screen)
+
+    term.send_key("esc")  # only the query goes: the whole list again
+    wait_home(term)
+    term.wait_for("Esc 終了", WAIT)
+    screen = term.screen_lines()
+    assert "> xp" not in screen[screen.index(PROMPT_JA) + 1]
+    assert not any("Esc 入力を消す" in line for line in screen)
+    assert row_after(screen, HOME_JA).startswith("❯ セーブデータをサーバーに")
+    assert f"✘ {PROMPT_JA}" not in history(term)  # the home was not left
+
+    term.send_key("esc")  # nothing typed and nothing changed: the editor exits
+    assert term.wait_exit(WAIT) == 0
+    assert f"✘ {PROMPT_JA} (キャンセル)" in history(term)
+
+
+def test_ctrl_c_with_a_query_starts_the_exit_flow_at_once(
+    terminal: StartTerminal, editor_sandbox: Sandbox
+) -> None:
+    editor_sandbox.write_config(locale="ja")
+    term = start(terminal, editor_sandbox)
+
+    term.send_text("xp")
+    term.wait_for("❯ XP", WAIT)
+    term.send_key("c-c")
+
+    assert term.wait_exit(WAIT) == 0
 
 
 def test_exit_question_esc_returns_home_and_yes_saves(

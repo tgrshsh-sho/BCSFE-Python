@@ -512,6 +512,36 @@ def test_pick_initial_query() -> None:
     assert result == tui.ListResult((1,), None, "a")
 
 
+def test_pick_clear_hint_makes_esc_clear_the_query_first() -> None:
+    # the whole list again, with the cursor on its first row
+    result = pick("beta", ESC, ENTER, clear_hint="Esc clears")
+    assert result == tui.ListResult((1,), None, "")
+    assert pick("beta", ESC, ESC, clear_hint="Esc clears") is None
+    assert pick(ESC, ENTER, clear_hint="Esc clears") is None  # nothing typed
+    assert pick("  ", ESC, ENTER, clear_hint="Esc clears") is None  # only spaces
+    assert pick("beta", CTRL_C, ENTER, clear_hint="Esc clears") is None
+    assert pick(ENTER, query="beta", clear_hint="Esc clears") == tui.ListResult(
+        (4,), None, "beta"
+    )
+    assert picked(ESC, ENTER, query="beta", clear_hint="Esc clears") == (1,)
+    # without it Esc cancels at once
+    assert pick("beta", ESC, ENTER) is None
+
+
+def test_select_clear_hint_makes_esc_clear_the_query_first() -> None:
+    def chosen(*keys: str) -> int | None:
+        return drive(
+            lambda: _apps.select(
+                "title", ITEMS, default=0, footer=None, clear_hint="Esc clears"
+            ),
+            *keys,
+        )
+
+    assert chosen("XP", ENTER) == 1
+    assert chosen("XP", ESC, ENTER) == 0
+    assert chosen("XP", ESC, ESC, ENTER) is None
+
+
 def test_key_label() -> None:
     assert _apps.key_label("c-o") == "Ctrl-O"
     assert _apps.key_label("f2") == "F2"

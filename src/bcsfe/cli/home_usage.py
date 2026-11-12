@@ -79,6 +79,11 @@ class Usage:
             return None
         return Entry(count, float(last))
 
+    def snapshot(self) -> Usage:
+        """A copy that later :meth:`record` calls on this object do not change."""
+        entries = {name: Entry(e.count, e.last) for name, e in self.entries.items()}
+        return Usage(self.path, entries)
+
     def record(self, name: str) -> None:
         """Count one use of ``name`` now and save the file."""
         newest = max((e.last for e in self.entries.values()), default=0.0)

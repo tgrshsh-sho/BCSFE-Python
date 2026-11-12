@@ -497,12 +497,14 @@ class SaveManagement:
             action.func = SaveManagement.noting(action.func, chosen)
 
         # The start menu is the first screen: Esc / Ctrl-C leave the editor
-        # (there is nothing to go back to), and the key hint says so.
+        # (there is nothing to go back to), and the key hint says so.  As on
+        # the home, Esc first clears a typed query.
         leaves = starting_options and tui.is_interactive()
         res = dialog_creator.single_select_key(
             actions,
             "save_load_option",
             hint=home_text.tr("home_hint") if leaves else None,
+            clear_hint=home_text.tr("home_hint_query") if leaves else None,
         )
         if res is None:
             if leaves and not chosen:
